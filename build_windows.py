@@ -1,44 +1,46 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-build_windows.py — build Arch Client cho Windows, TỐI ƯU ĐỂ KHÔNG BỊ
-WINDOWS DEFENDER / ANTIVIRUS GẮN CỜ.
+build_windows.py — builds Arch Client for Windows, OPTIMIZED TO AVOID BEING
+FLAGGED BY WINDOWS DEFENDER / ANTIVIRUS.
 
-Vì sao bản .exe cũ hay bị Defender báo "Trojan:Win32/Wacatac.B!ml":
-  1. --onefile: file .exe tự giải nén hàng chục MB ra %TEMP% rồi chạy tiếp
-     từ đó. Đây ĐÚNG hành vi của dropper/packer malware -> heuristic ML của
-     Defender chấm điểm rất cao. Đây là nguyên nhân số 1.
-  2. File .exe KHÔNG có version resource (tên công ty, sản phẩm, phiên bản)
-     -> Defender/SmartScreen coi là "phần mềm vô danh", cộng thêm điểm nghi.
-  3. UPX nén -> luôn bị coi là packer (ở đây đã tắt sẵn bằng --noupx).
-  4. Không ký số (code signing) -> SmartScreen vẫn cảnh báo lần đầu chạy.
+Why the old .exe often triggered Defender's "Trojan:Win32/Wacatac.B!ml":
+  1. --onefile: the .exe unpacks tens of MB into %TEMP% and keeps running
+     from there. This is exactly what droppers/packers do, so Defender's ML
+     heuristics score it very high. This is the #1 cause.
+  2. The .exe has NO version resource (company, product, version)
+     -> Defender/SmartScreen treat it as "anonymous software" and add
+     suspicion points.
+  3. UPX compression -> always treated as a packer (already disabled here
+     with --noupx).
+  4. No code signing -> SmartScreen still warns on first run.
 
-Script này xử lý 1, 2, 3 tự động:
-  * Mặc định build --onedir (một thư mục ArchClient/ chứa ArchClient.exe
-    + DLL) rồi đóng thành ArchClient-windows.zip. Bản onedir gần như
-    KHÔNG BAO GIỜ bị gắn cờ vì không có màn tự giải nén ra %TEMP%.
-  * Tự sinh file version_info.txt (CompanyName / ProductName / FileVersion)
-    và nhúng vào .exe bằng --version-file.
-  * Kèm manifest requestedExecutionLevel = asInvoker (xin quyền admin là
-    một cờ đỏ khác của Defender).
-  * Loại bỏ các module nặng không dùng -> file nhỏ hơn, ít nghi hơn.
+This script handles 1, 2 and 3 automatically:
+  * Builds --onedir by default (an ArchClient/ folder containing
+    ArchClient.exe + DLLs) and zips it as ArchClient-windows.zip. The onedir
+    build is almost NEVER flagged because nothing self-extracts to %TEMP%.
+  * Generates version_info.txt (CompanyName / ProductName / FileVersion)
+    and embeds it in the .exe via --version-file.
+  * Ships a manifest with requestedExecutionLevel = asInvoker (asking for
+    admin rights is another Defender red flag).
+  * Excludes heavy unused modules -> smaller file, less suspicious.
   * --noupx, --clean.
 
-Vấn đề 4 (ký số) cần chứng chỉ trả phí, script không làm thay được. Xem
-phần "NẾU VẪN BỊ GẮN CỜ" ở cuối file.
+Problem 4 (code signing) needs a paid certificate; the script can't do that
+for you.
 
-Cách dùng:
-    python build_windows.py                 # onedir + zip  (KHUYÊN DÙNG)
-    python build_windows.py --onefile       # 1 file .exe duy nhất (dễ bị flag)
-    python build_windows.py --onefile --sign-self   # onefile + tự ký self-signed
+Usage:
+    python build_windows.py                 # onedir + zip  (RECOMMENDED)
+    python build_windows.py --onefile       # single .exe (easier to get flagged)
+    python build_windows.py --onefile --sign-self   # onefile + self-signed
 """
 from __future__ import annotations
 
 import os
 import sys
 
-# Console Windows trên GitHub Actions dùng codepage không hiểu Unicode ->
-# in emoji/tiếng Việt là crash ngay. Ép UTF-8 từ đầu.
+# The Windows console on GitHub Actions uses a codepage that doesn't understand
+# Unicode -> printing emoji/Vietnamese crashes immediately. Force UTF-8 up front.
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -55,8 +57,8 @@ HERE = Path(__file__).resolve().parent
 MAIN_SCRIPT = HERE / "arch_laucher.py"
 APP_NAME = "ArchClient"
 
-# Metadata nhúng vào .exe — càng đầy đủ, điểm heuristic càng thấp.
-APP_VERSION = "2.1.0"
+# Metadata embedded in the .exe — the more complete, the lower the heuristic score.
+APP_VERSION = "1.3.0"  # Beta 1.3
 COMPANY_NAME = "Arch Client"
 PRODUCT_NAME = "Arch Client Launcher"
 FILE_DESC = "Arch Client - Minecraft Fabric Launcher"
@@ -66,7 +68,7 @@ REQUIRED_PACKAGES = ["ttkbootstrap", "minecraft-launcher-lib", "requests", "pill
 OPTIONAL_PACKAGES = ["pypresence", "tkinterweb", "pywebview"]
 BUILD_TOOLS = ["pyinstaller"]
 
-# Module to, không dùng tới -> loại ra cho .exe nhỏ và "sạch" hơn.
+# Large unused modules -> excluded to keep the .exe small and "clean".
 EXCLUDES = [
     "matplotlib", "numpy", "scipy", "pandas", "pytest", "IPython",
     "notebook", "PyQt5", "PyQt6", "PySide2", "PySide6", "sqlite3",
@@ -86,11 +88,11 @@ def pip_install(packages, required=True):
     except subprocess.CalledProcessError:
         if required:
             raise
-        print(f"  ⚠ Bỏ qua gói tuỳ chọn cài thất bại: {packages}")
+        print(f"  ⚠ Skipping optional package(s) that failed to install: {packages}")
 
 
 def ensure_icon() -> str | None:
-    """PyInstaller --icon cần .ico; chỉ có icon.png thì convert bằng Pillow."""
+    """PyInstaller --icon needs a .ico; if only icon.png exists, convert it with Pillow."""
     ico_path = HERE / "img" / "icon.ico"
     png_path = HERE / "img" / "icon.png"
     if ico_path.exists():
@@ -104,17 +106,17 @@ def ensure_icon() -> str | None:
                  sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
         return str(ico_path)
     except Exception as e:
-        print(f"  ⚠ Không tạo được icon.ico ({e}) — build vẫn tiếp tục.")
+        print(f"  ⚠ Could not create icon.ico ({e}) — continuing the build.")
         return None
 
 
 def write_version_file() -> Path:
-    """Sinh version resource cho .exe.
+    """Generate the version resource for the .exe.
 
-    File .exe không có metadata bị Defender coi là phần mềm vô danh và cộng
-    điểm heuristic. Có CompanyName/ProductName/FileVersion đầy đủ thì tỉ lệ
-    bị gắn cờ giảm rõ rệt (và SmartScreen hiện tên sản phẩm thay vì
-    'Unknown Publisher').
+    An .exe without metadata is treated by Defender as anonymous software and
+    gets extra heuristic points. With full CompanyName/ProductName/FileVersion
+    the flag rate drops noticeably (and SmartScreen shows the product name
+    instead of 'Unknown Publisher').
     """
     parts = (APP_VERSION.split(".") + ["0", "0", "0", "0"])[:4]
     nums = ", ".join(str(int(p)) for p in parts)
@@ -149,10 +151,11 @@ VSVersionInfo(
 
 
 def write_manifest() -> Path:
-    """Manifest asInvoker: KHÔNG xin quyền admin.
+    """asInvoker manifest: do NOT request admin rights.
 
-    Ứng dụng xin elevation mà không cần là một tín hiệu nghi ngờ mạnh. Arch
-    Client không cần admin (Java tải về thư mục ~/.config của người dùng).
+    Asking for elevation without needing it is a strong suspicion signal.
+    Arch Client doesn't need admin (Java is downloaded into the user's
+    ~/.config folder).
     """
     content = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
@@ -185,10 +188,10 @@ def write_manifest() -> Path:
 
 
 def sign_self_signed(target: Path):
-    """Tự ký bằng chứng chỉ self-signed.
+    """Sign with a self-signed certificate.
 
-    KHÔNG làm SmartScreen im lặng (chứng chỉ không do CA cấp), nhưng có chữ
-    ký hợp lệ vẫn giúp giảm điểm heuristic ở một số AV. Cần PowerShell.
+    Does NOT silence SmartScreen (the certificate isn't issued by a CA), but a
+    valid signature still lowers the heuristic score in some AVs. Needs PowerShell.
     """
     ps = f"""
 $ErrorActionPreference = 'Stop'
@@ -201,9 +204,9 @@ Write-Host 'Signed OK'
 """
     try:
         run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps])
-        print("  ✅ Đã ký self-signed.")
+        print("  ✅ Self-signed signature applied.")
     except Exception as e:
-        print(f"  ⚠ Ký self-signed thất bại ({e}) — bỏ qua, build vẫn dùng được.")
+        print(f"  ⚠ Self-signing failed ({e}) — skipped, the build is still usable.")
 
 
 def zip_dir(folder: Path, zip_path: Path):
@@ -216,36 +219,36 @@ def zip_dir(folder: Path, zip_path: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--onefile", action="store_true",
-                    help="Đóng thành 1 file .exe duy nhất (DỄ BỊ ANTIVIRUS GẮN CỜ).")
+                    help="Pack into a single .exe (EASILY FLAGGED BY ANTIVIRUS).")
     ap.add_argument("--sign-self", action="store_true",
-                    help="Ký self-signed sau khi build (Windows, cần PowerShell).")
-    ap.add_argument("--no-zip", action="store_true", help="Không nén thư mục dist.")
+                    help="Self-sign after building (Windows, needs PowerShell).")
+    ap.add_argument("--no-zip", action="store_true", help="Do not zip the dist folder.")
     args = ap.parse_args()
 
     if sys.platform != "win32":
-        print("⚠ Script này tạo bản Windows — nên chạy trên Windows.")
-        print("  (PyInstaller không cross-compile: muốn ra .exe phải build trên Windows.)")
+        print("⚠ This script builds the Windows version — run it on Windows.")
+        print("  (PyInstaller does not cross-compile: to get an .exe you must build on Windows.)")
 
     if not MAIN_SCRIPT.exists():
-        sys.exit(f"❌ Không tìm thấy {MAIN_SCRIPT}")
+        sys.exit(f"❌ Not found: {MAIN_SCRIPT}")
 
-    print("== 1/5: Cài thư viện bắt buộc ==")
+    print("== 1/5: Installing required packages ==")
     pip_install(REQUIRED_PACKAGES, required=True)
 
-    print("== 2/5: Cài thư viện tuỳ chọn (Discord RPC, browser nhúng…) ==")
+    print("== 2/5: Installing optional packages (Discord RPC, embedded browser…) ==")
     pip_install(OPTIONAL_PACKAGES, required=False)
 
-    print("== 3/5: Cài PyInstaller ==")
+    print("== 3/5: Installing PyInstaller ==")
     pip_install(BUILD_TOOLS, required=True)
 
-    print("== 4/5: Sinh metadata chống antivirus gắn cờ ==")
+    print("== 4/5: Generating anti-false-positive metadata ==")
     icon = ensure_icon()
     version_file = write_version_file()
     manifest = write_manifest()
     print(f"  ✓ version resource: {version_file.name}")
     print(f"  ✓ manifest asInvoker: {manifest.name}")
 
-    print("== 5/5: Đóng gói ==")
+    print("== 5/5: Packaging ==")
     for d in ("build", "dist"):
         shutil.rmtree(HERE / d, ignore_errors=True)
     spec_file = HERE / f"{APP_NAME}.spec"
@@ -256,7 +259,7 @@ def main():
         sys.executable, "-m", "PyInstaller",
         "--onefile" if args.onefile else "--onedir",
         "--windowed",
-        "--noupx",                      # UPX = packer = cờ đỏ với mọi AV
+        "--noupx",                      # UPX = packer = red flag for every AV
         "--clean", "--noconfirm",
         "--name", APP_NAME,
         "--version-file", str(version_file),
@@ -282,30 +285,30 @@ def main():
     if args.onefile:
         exe_path = HERE / "dist" / f"{APP_NAME}.exe"
         if not exe_path.exists():
-            sys.exit("❌ Build thất bại — không thấy .exe trong dist/.")
+            sys.exit("❌ Build failed — no .exe found in dist/.")
         if args.sign_self and sys.platform == "win32":
             sign_self_signed(exe_path)
-        print(f"\n✅ Build xong: {exe_path}")
-        print("⚠ Bản --onefile tự giải nén ra %TEMP% -> Defender có thể vẫn gắn cờ.")
-        print("  Bị báo nhầm thì build lại KHÔNG có --onefile (bản onedir).")
+        print(f"\n✅ Build finished: {exe_path}")
+        print("⚠ The --onefile build self-extracts to %TEMP% -> Defender may still flag it.")
+        print("  If it is falsely flagged, rebuild WITHOUT --onefile (onedir build).")
         return
 
     app_dir = HERE / "dist" / APP_NAME
     exe_path = app_dir / f"{APP_NAME}.exe"
     if not exe_path.exists():
-        sys.exit("❌ Build thất bại — không thấy .exe trong dist/.")
+        sys.exit("❌ Build failed — no .exe found in dist/.")
     if args.sign_self and sys.platform == "win32":
         sign_self_signed(exe_path)
 
-    print(f"\n✅ Build xong: {app_dir}")
+    print(f"\n✅ Build finished: {app_dir}")
     if not args.no_zip:
         zip_path = HERE / "dist" / f"{APP_NAME}-windows.zip"
         zip_dir(app_dir, zip_path)
         size = zip_path.stat().st_size / 1024 / 1024
-        print(f"✅ Đã nén: {zip_path}  ({size:.1f} MB)")
-        print("   Gửi file .zip này cho người dùng — giải nén rồi chạy ArchClient.exe.")
-    print("\n📌 Bản onedir gần như không bị Defender gắn cờ vì không tự giải nén")
-    print("   ra %TEMP% như bản --onefile.")
+        print(f"✅ Zipped: {zip_path}  ({size:.1f} MB)")
+        print("   Send this .zip to users — extract it and run ArchClient.exe.")
+    print("\n📌 The onedir build is almost never flagged by Defender because it does not self-extract")
+    print("   to %TEMP% like the --onefile build does.")
 
 
 if __name__ == "__main__":
