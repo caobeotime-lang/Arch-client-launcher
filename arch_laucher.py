@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Arch Client - launcher Minecraft Fabric (ttkbootstrap, theme flatly)
-# Tự nhận diện OS + cài gói thiếu, tự tạo .minecraft, tự cài shortcut
-# (.desktop Linux / Start Menu + Desktop Windows), log lỗi ra file txt.
+# Arch Client - Minecraft Fabric launcher (ttkbootstrap, flatly theme)
+# Auto-detects the OS and installs missing packages, creates .minecraft,
+# installs shortcuts (.desktop on Linux / Start Menu + Desktop on Windows),
+# and writes error logs to a txt file.
 #
-# Cài thủ công nếu cần:
+# Manual install if needed:
 #   pip install minecraft-launcher-lib requests ttkbootstrap --break-system-packages
 
 import os
@@ -387,6 +388,126 @@ try:
     import requests
 except ImportError:
     requests = None
+
+# ===== Patch toàn cục =====
+# 1) Windows: mọi subprocess (java, powershell...) chạy KHÔNG bật cửa sổ cmd.
+if sys.platform == "win32":
+    _orig_popen_init = subprocess.Popen.__init__
+
+    def _popen_init_nowin(self, *a, **kw):
+        kw["creationflags"] = kw.get("creationflags", 0) | 0x08000000  # CREATE_NO_WINDOW
+        _orig_popen_init(self, *a, **kw)
+
+    subprocess.Popen.__init__ = _popen_init_nowin
+
+# 2) Tắt xác minh chứng chỉ HTTPS (hết lỗi SSL / CERTIFICATE_VERIFY_FAILED khi tải).
+try:
+    import ssl as _ssl
+    _ssl._create_default_https_context = _ssl._create_unverified_context
+    os.environ["PYTHONHTTPSVERIFY"] = "0"
+except Exception:
+    pass
+if requests is not None:
+    try:
+        import urllib3
+        urllib3.disable_warnings()
+    except Exception:
+        pass
+    _orig_merge_env = requests.Session.merge_environment_settings
+
+    def _merge_env_noverify(self, url, proxies, stream, verify, cert):
+        st = _orig_merge_env(self, url, proxies, stream, verify, cert)
+        st["verify"] = False
+        return st
+
+    requests.Session.merge_environment_settings = _merge_env_noverify
+
+
+def fetch_to(url, dest):
+    """Tải file bằng requests (có User-Agent), ghi .part rồi đổi tên."""
+    dest = Path(dest)
+    tmp = dest.with_name(dest.name + ".part")
+    with requests.get(url, stream=True, timeout=60, allow_redirects=True,
+                      headers={"User-Agent": "ArchClient/2.1 (launcher)"}) as r:
+        r.raise_for_status()
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(chunk_size=262144):
+                if chunk:
+                    f.write(chunk)
+    os.replace(tmp, dest)
+
+
+def _jar_is(slug, name):
+    """Jar này có phải mod `slug` không (sodium ≠ sodium-extra)."""
+    n = name.lower()
+    if slug in ("sodium", "iris"):
+        return re.match(rf"^{re.escape(slug)}(?:[-_+ ]?(?:fabric|mc|v?\d)|\.jar$)", n) is not None
+    return slug in n
+
+
+def _mod_ver_tuple(version_number):
+    """'mc1.21.11-0.8.14-fabric' -> (0, 8, 14)."""
+    v = re.sub(r"mc\d+(?:\.\d+)*", "", version_number or "")
+    m = re.search(r"\d+(?:\.\d+)+", v)
+    return tuple(int(x) for x in m.group(0).split(".")) if m else ()
+
+
+def _pad3(t):
+    return tuple(t) + (0,) * max(0, 3 - len(t))
+
+
+def _tok_ok(ver, tok):
+    if tok in ("", "*"):
+        return True
+    m = re.match(r"^(>=|<=|>|<|=|~|\^)?(.+)$", tok)
+    op, v = (m.group(1) or "="), m.group(2)
+    nums, wild = [], False
+    for part in v.split("+")[0].split("-")[0].split("."):
+        if part in ("x", "X", "*"):
+            wild = True
+            break
+        if part.isdigit():
+            nums.append(int(part))
+        else:
+            break
+    t, n = tuple(nums), len(nums)
+    pv, pt = _pad3(ver), _pad3(t)
+    if op == ">=":
+        return pv >= pt
+    if op == ">":
+        return pv > pt
+    if op == "<=":
+        return pv <= pt
+    if op == "<":
+        return pv < pt
+    if op == "~":
+        return pv >= pt and tuple(ver[:min(2, max(n, 1))]) == t[:min(2, max(n, 1))]
+    if op == "^":
+        k = next((i for i, x in enumerate(t) if x != 0), max(n - 1, 0))
+        return pv >= pt and tuple(ver[:k + 1]) == t[:k + 1]
+    if wild or n < 3:
+        return tuple(ver[:n]) == t
+    return pv == pt
+
+
+def _satisfies(ver, pred):
+    """Kiểm tra version thoả điều kiện kiểu fabric.mod.json (str hoặc list)."""
+    if isinstance(pred, list):
+        return any(_satisfies(ver, x) for x in pred)
+    for alt in str(pred).split("||"):
+        if all(_tok_ok(ver, tok) for tok in alt.split()):
+            return True
+    return False
+
+
+def _jar_depends(jar_path, key):
+    try:
+        with zipfile.ZipFile(jar_path) as z:
+            d = json.loads(z.read("fabric.mod.json").decode("utf-8-sig"), strict=False)
+        return (d.get("depends") or {}).get(key)
+    except Exception:
+        return None
+
 
 try:
     from PIL import Image, ImageTk
@@ -948,7 +1069,12 @@ MC_VERSIONS = [
 ]
 # mặc định khi chưa có config
 MC_VERSION = "1.21.1"
-DEFAULT_MC_DIR = Path.home() / ".minecraft"
+_OLD_DEFAULT_MC_DIR = Path.home() / ".minecraft"
+if sys.platform == "win32":
+    # Windows: %APPDATA%\.minecraft (AppData\Roaming), same place as the official launcher.
+    DEFAULT_MC_DIR = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")) / ".minecraft"
+else:
+    DEFAULT_MC_DIR = _OLD_DEFAULT_MC_DIR
 CONFIG_DIR = Path.home() / ".config" / "arch-client-launcher"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -1005,6 +1131,13 @@ def load_config():
         try:
             cfg = default_config()
             cfg.update(json.loads(CONFIG_FILE.read_text(encoding="utf-8")))
+            try:
+                if (sys.platform == "win32"
+                        and Path(cfg.get("mc_dir", "")) == _OLD_DEFAULT_MC_DIR
+                        and not _OLD_DEFAULT_MC_DIR.exists()):
+                    cfg["mc_dir"] = str(DEFAULT_MC_DIR)
+            except Exception:
+                pass
             return cfg
         except Exception:
             pass
@@ -1020,6 +1153,19 @@ REQUIRED_MC_SUBDIRS = [
     "mods", "resourcepacks", "shaderpacks", "schematics",
     "saves", "screenshots", "config", "logs", "crash-reports", "versions",
 ]
+
+
+def ensure_minecraft_dir_safe(mc_dir: Path):
+    """Never crash: on failure fall back to DEFAULT_MC_DIR. Returns (dir, result)."""
+    for cand in (Path(mc_dir), DEFAULT_MC_DIR):
+        try:
+            res = ensure_minecraft_dir(cand)
+            res["error"] = None if cand == Path(mc_dir) else f"cannot use {mc_dir}, using {cand}"
+            return cand, res
+        except Exception as e:
+            write_error_log("Create .minecraft", exc=e)
+    return Path(mc_dir), {"first_time": False, "created": [],
+                          "error": f"cannot create {mc_dir}"}
 
 
 def ensure_minecraft_dir(mc_dir: Path) -> dict:
@@ -1511,7 +1657,8 @@ class App(tb.Window):
         self.discord_rpc = None
         self.discord_start_time = int(time.time())
 
-        mc_dir_result = ensure_minecraft_dir(self.mc_dir)
+        self.mc_dir, mc_dir_result = ensure_minecraft_dir_safe(self.mc_dir)
+        self.cfg["mc_dir"] = str(self.mc_dir)
 
         self._build_header()
         self._build_footer()
@@ -1522,6 +1669,8 @@ class App(tb.Window):
         self.refresh_all()
 
         self.log(f"🖥 Hệ điều hành: {OS_INFO['pretty']}")
+        if mc_dir_result.get("error"):
+            self.log(f"⚠ .minecraft: {mc_dir_result['error']}")
         if mc_dir_result["first_time"]:
             self.log(f"📁 Chưa có .minecraft — đã tự động tạo mới hoàn toàn tại: {self.mc_dir}")
             self.log(f"   (đã tạo {len(mc_dir_result['created'])} thư mục con: "
@@ -1713,7 +1862,9 @@ class App(tb.Window):
         d = filedialog.askdirectory(initialdir=str(self.mc_dir))
         if d:
             self.mc_dir = Path(d)
-            result = ensure_minecraft_dir(self.mc_dir)
+            self.mc_dir, result = ensure_minecraft_dir_safe(self.mc_dir)
+            if result.get("error"):
+                self.log(f"⚠ .minecraft: {result['error']}")
             self.dir_var.set(str(self.mc_dir))
             self.cfg["mc_dir"] = str(self.mc_dir)
             save_config(self.cfg)
@@ -2587,7 +2738,7 @@ class App(tb.Window):
             self.log(f"  ⏭ {finfo['filename']}: already installed, skipped.")
             return True
         self.log(f"  ⬇ Downloading {finfo['filename']} → {folder}/ ...")
-        urllib.request.urlretrieve(finfo["url"], dest)
+        fetch_to(finfo["url"], dest)
         self.log(f"  ✅ Done: {finfo['filename']}")
         return True
 
@@ -2981,6 +3132,16 @@ class App(tb.Window):
             return
         threading.Thread(target=self._install_fabric, daemon=True).start()
 
+    BASE_MODS = ("fabric-api", "modmenu")
+
+    def _ensure_base_mods(self):
+        """Tự tải Fabric API + Mod Menu (nếu chưa có) khớp phiên bản MC."""
+        if requests is None:
+            return
+        self.log("📦 Kiểm tra Fabric API + Mod Menu...")
+        for slug in self.BASE_MODS:
+            self._download_modrinth_mod(slug)
+
     def _install_fabric(self):
         try:
             self.set_status("Đang cài Fabric...", "inverse-warning")
@@ -3009,6 +3170,7 @@ class App(tb.Window):
                 self.mc_version, str(self.mc_dir), callback=callback, java=java_exe
             )
             self.log("✅ Cài Fabric thành công!")
+            self._ensure_base_mods()
             self.set_status(self.t("status_ready"))
         except Exception as e:
             self.log(f"❌ Lỗi khi cài Fabric: {e}")
@@ -3085,6 +3247,7 @@ class App(tb.Window):
                 return
             version_id = versions[0]
             self.log(f"🚀 Chuẩn bị chạy: {version_id}")
+            self._ensure_base_mods()
 
             ram = int(self.ram_var.get())
             jvm_args = [
@@ -3183,89 +3346,85 @@ class App(tb.Window):
         r.raise_for_status()
         return r.json().get("slug", project_id)
 
+    def _pick_file(self, version_obj):
+        files = version_obj.get("files") or []
+        return next((x for x in files if x.get("primary")), files[0])
+
     def _download_modrinth_version(self, slug, version_obj, mods_dir):
-        """Tải đúng 1 bản (version_obj) của mod về mods_dir, xoá bản .jar cũ
-        cùng mod trước đó để tránh 2 bản song song gây xung đột."""
-        file_info = version_obj["files"][0]
-        dest = mods_dir / file_info["filename"]
+        """Tải đúng 1 bản của mod; xoá jar cũ cùng mod để khỏi có 2 bản song song."""
+        fi = self._pick_file(version_obj)
+        dest = mods_dir / fi["filename"]
         for old in mods_dir.glob("*.jar"):
-            if slug in old.name.lower() and old.name != file_info["filename"]:
+            if _jar_is(slug, old.name) and old.name != fi["filename"]:
                 old.unlink(missing_ok=True)
+        if dest.exists() and dest.stat().st_size > 0:
+            self.log(f"  ⏭ {fi['filename']}: đã có.")
+            return dest
         self.log(f"  ⬇ Đang tải {slug} (MC {self.mc_version})...")
-        urllib.request.urlretrieve(file_info["url"], dest)
-        self.log(f"  ✅ Đã tải: {file_info['filename']}")
+        fetch_to(fi["url"], dest)
+        self.log(f"  ✅ Đã tải: {fi['filename']}")
+        return dest
 
-    def _sync_sodium_for_iris(self, iris_version_obj, mods_dir):
-        """Iris chỉ chạy đúng với 1 khoảng bản Sodium nhất định. Nếu launcher
-        tải Sodium 'mới nhất' một cách độc lập, có thể vô tình chọn bản Sodium
-        mới hơn bản Iris đang hỗ trợ → mixin conflict → crash khi vào game.
-        Hàm này đọc dependency 'sodium' mà chính bản Iris đang tải yêu cầu,
-        rồi ép cài đúng bản đó (đè lên bản Sodium 'mới nhất' đã tải lệch)."""
-        try:
-            required_dep = None
-            for dep in iris_version_obj.get("dependencies", []):
-                if dep.get("dependency_type") != "required":
-                    continue
-                pid = dep.get("project_id")
-                if not pid:
-                    continue
+    def _find_sodium_for_iris(self, iris_obj, iris_jar):
+        """Chọn bản Sodium khớp Iris: (1) bản Iris ghim sẵn, (2) range trong
+        fabric.mod.json của Iris, (3) bản Sodium mới nhất không muộn hơn Iris."""
+        sodium_versions = self._modrinth_version_list("sodium")
+        for dep in iris_obj.get("dependencies", []):
+            if dep.get("dependency_type") == "required" and dep.get("version_id"):
                 try:
-                    pslug = self._modrinth_project_slug(pid)
+                    pslug = self._modrinth_project_slug(dep.get("project_id"))
                 except Exception:
-                    pslug = pid
+                    pslug = ""
                 if pslug == "sodium":
-                    required_dep = dep
-                    break
+                    r = requests.get(
+                        f"https://api.modrinth.com/v2/version/{dep['version_id']}",
+                        timeout=15, headers={"User-Agent": "ArchClient/2.0"})
+                    r.raise_for_status()
+                    return r.json()
+        rng = _jar_depends(iris_jar, "sodium")
+        if rng is not None:
+            for v in sodium_versions:  # mới nhất trước
+                vt = _mod_ver_tuple(v.get("version_number"))
+                if vt and _satisfies(vt, rng):
+                    return v
+        iris_date = iris_obj.get("date_published", "")
+        cands = [v for v in sodium_versions if v.get("date_published", "") <= iris_date]
+        return (cands or sodium_versions or [None])[0]
 
-            if not required_dep:
-                self.log("  ⚠ Không đọc được yêu cầu Sodium của Iris — giữ bản Sodium hiện có.")
-                return
-
-            version_id = required_dep.get("version_id")
-            if version_id:
-                # Iris ghim thẳng version_id → dùng đúng bản này, chắc chắn khớp.
-                r = requests.get(f"https://api.modrinth.com/v2/version/{version_id}",
-                                  timeout=15, headers={"User-Agent": "ArchClient/2.0"})
-                r.raise_for_status()
-                sodium_version_obj = r.json()
-            else:
-                # Iris chỉ ghi "cần Sodium" mà không ghim version cụ thể → chọn
-                # bản Sodium công bố GẦN NHẤT nhưng KHÔNG MUỘN HƠN bản Iris này,
-                # để tránh vồ bản Sodium mới hơn mà Iris chưa kịp hỗ trợ.
-                sodium_versions = self._modrinth_version_list("sodium")
-                iris_date = iris_version_obj.get("date_published", "")
-                candidates = [v for v in sodium_versions
-                              if v.get("date_published", "") <= iris_date]
-                sodium_version_obj = candidates[0] if candidates else (
-                    sodium_versions[0] if sodium_versions else None)
-
-            if not sodium_version_obj:
-                self.log("  ⚠ Không tìm được bản Sodium khớp với Iris.")
-                return
-
-            self._download_modrinth_version("sodium", sodium_version_obj, mods_dir)
-            self.log("  🔧 Đã đồng bộ Sodium theo đúng bản Iris yêu cầu (tránh crash do lệch version).")
-        except Exception as e:
-            self.log(f"  ❌ Lỗi đồng bộ Sodium/Iris: {e}")
-            write_error_log("Đồng bộ Sodium/Iris", exc=e)
+    def _install_iris_with_sodium(self, mods_dir):
+        """Cài Iris + Sodium khớp nhau (như nút 'Download with deps' của Modrinth)."""
+        iris_versions = self._modrinth_version_list("iris")
+        if not iris_versions:
+            self.log(f"  ⚠ iris: không có bản cho MC {self.mc_version} + Fabric.")
+            return False
+        iris_obj = iris_versions[0]
+        iris_jar = self._download_modrinth_version("iris", iris_obj, mods_dir)
+        sod = self._find_sodium_for_iris(iris_obj, iris_jar)
+        if not sod:
+            self.log("  ⚠ Không tìm được bản Sodium khớp với Iris.")
+            return False
+        self._download_modrinth_version("sodium", sod, mods_dir)
+        self.log(f"  🔧 Iris {iris_obj.get('version_number')} + "
+                 f"Sodium {sod.get('version_number')} (khớp nhau).")
+        return True
 
     def _download_modrinth_mod(self, slug):
-        """Tải 1 mod từ Modrinth khớp self.mc_version + Fabric. Trả về True/False.
-        Với 'iris', luôn kiểm tra & ép đúng bản Sodium tương thích sau khi tải."""
+        """Tải 1 mod Modrinth khớp self.mc_version + Fabric. Iris/Sodium luôn
+        được cài thành cặp khớp nhau."""
         if requests is None:
             self.log("⚠ Thiếu 'requests', bỏ qua tải mod tự động.")
             return False
         mods_dir = self.mc_dir / "mods"
         mods_dir.mkdir(parents=True, exist_ok=True)
-        already = any(slug in fp.name.lower() for fp in mods_dir.glob("*.jar"))
-
-        # Mod khác Iris: nếu đã có thì bỏ qua như trước. Iris thì luôn kiểm tra
-        # lại Sodium dù đã có file, vì bản Sodium hiện tại có thể đang lệch.
-        if slug != "iris" and already:
-            self.log(f"  ⏭ {slug}: đã có, bỏ qua.")
-            return True
-
         try:
+            has_iris = any(_jar_is("iris", fp.name) for fp in mods_dir.glob("*.jar"))
+            if slug == "iris" or (slug == "sodium" and has_iris):
+                return self._install_iris_with_sodium(mods_dir)
+
+            if slug != "sodium" and any(_jar_is(slug, fp.name) for fp in mods_dir.glob("*.jar")):
+                self.log(f"  ⏭ {slug}: đã có, bỏ qua.")
+                return True
+
             versions = self._modrinth_version_list(slug)
             if not versions:
                 msg = self.LANG.get(
@@ -3274,18 +3433,7 @@ class App(tb.Window):
                 ).format(ver=self.mc_version)
                 self.log(f"  ⚠ {slug}: {msg}")
                 return False
-
-            chosen = versions[0]
-
-            if slug == "iris":
-                if not already:
-                    self._download_modrinth_version("iris", chosen, mods_dir)
-                else:
-                    self.log("  ⏭ iris: đã có, kiểm tra lại bản Sodium khớp...")
-                self._sync_sodium_for_iris(chosen, mods_dir)
-                return True
-
-            self._download_modrinth_version(slug, chosen, mods_dir)
+            self._download_modrinth_version(slug, versions[0], mods_dir)
             return True
         except Exception as e:
             self.log(f"  ❌ Lỗi tải {slug}: {e}")
