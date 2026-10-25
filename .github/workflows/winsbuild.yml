@@ -1,1 +1,100 @@
+name: Build EXE
 
+# The Windows .exe must be built on a real Windows machine (PyInstaller does
+# not cross-compile), so this workflow runs on the "windows-latest" runner.
+#
+# The default build is --onedir, zipped as ArchClient-windows.zip: the onedir
+# build does not self-extract to %TEMP% at runtime, so it is almost never
+# flagged by Windows Defender as Trojan:Win32/Wacatac.B!ml like the old
+# --onefile build was. The "build-onefile" job still produces a single-file
+# build for anyone who wants it, clearly marked as possibly flagged by
+# antivirus software.
+#
+# Every build ships with a SHA256SUMS file so users can verify the checksum.
+
+on:
+  push:
+    branches: [ main, Windows ]
+    tags: [ "v*" ]
+  workflow_dispatch: {}
+
+# softprops/action-gh-release needs write access to create a Release
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: onedir (recommended - rarely flagged by antivirus)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build ArchClient (onedir + zip)
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python build_windows.py
+
+      - name: Create SHA256SUMS
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash dist/ArchClient-windows.zip -Algorithm SHA256).Hash.ToLower()
+          "$h  ArchClient-windows.zip" | Out-File -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ArchClient-windows
+          path: |
+            dist/ArchClient-windows.zip
+            dist/SHA256SUMS.txt
+
+      - name: Create GitHub Release (only on v* tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ArchClient-windows.zip
+            dist/SHA256SUMS.txt
+
+  build-onefile:
+    name: onefile (single .exe - may be falsely flagged by antivirus)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build ArchClient.exe (onefile)
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+        run: python build_windows.py --onefile
+
+      - name: Create SHA256SUMS (onefile)
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash dist/ArchClient.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  ArchClient.exe" | Out-File -Encoding ascii dist/SHA256SUMS-onefile.txt
+          Get-Content dist/SHA256SUMS-onefile.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ArchClient-windows-onefile
+          path: |
+            dist/ArchClient.exe
+            dist/SHA256SUMS-onefile.txt
+
+      - name: Attach to Release (only on v* tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ArchClient.exe
+            dist/SHA256SUMS-onefile.txt
