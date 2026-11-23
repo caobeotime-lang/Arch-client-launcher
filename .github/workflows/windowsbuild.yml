@@ -1,0 +1,31 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ windows ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build ArchClient.exe (onedir + zip)
+        run: python build_windows.py
+
+      - name: Kiểm tra file build
+        shell: pwsh
+        run: |
+          Get-ChildItem dist
+          if (-not (Test-Path "dist/ArchClient/ArchClient.exe")) { throw "thiếu ArchClient.exe" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ArchClient-windows
+          path: dist/*.zip
+          if-no-files-found: error
