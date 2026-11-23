@@ -93,7 +93,8 @@ jobs:
           $files = Get-ChildItem dist -File | Where-Object {
             $_.Name -like "*.zip" -or $_.Name -like "*-setup.exe" -or $_.Name -like "*-standalone.exe"
           } | ForEach-Object { $_.FullName }
-          if (gh release view "$tag" -R $repo *> $null) {
+          gh release view "$tag" -R $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
             gh release edit "$tag" -R $repo --title $title --notes-file dist/release_notes.md
             gh release upload "$tag" -R $repo --clobber @files
             Write-Host "Updated release $tag ($($files.Count) files)."
