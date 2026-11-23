@@ -4,13 +4,24 @@ A Minecraft launcher for Windows 10 and 11 (64-bit). Supports every Minecraft ve
 
 Version 1.0. Qt 6 needs Windows 10 or newer; Windows 7 and 8 are not supported. Linux build: `linux` branch.
 
+## Download
+
+All downloads are on the [Releases page](https://github.com/caobeotime-lang/Arch-client-launcher/releases/tag/v1.0.0-windows):
+
+| File | What it is |
+|---|---|
+| `ArchClient-1.0.0-windows-x64-setup.exe` | Installer (recommended). Installs for the current user, no admin rights. |
+| `ArchClient-1.0.0-windows-x64.zip` | Portable version: extract and run `ArchClient.exe`. |
+| `ArchClient-1.0.0-windows-x64-standalone.exe` | Single-file executable (slower to start). |
+| `ArchClient-source-v1.0.0.zip` | Source code of this release. |
+
+The files are not code-signed, so Windows SmartScreen may show "Windows protected your PC" on first run. Click **More info → Run anyway**.
+
 ## Install
 
-**Option 1: the .exe (recommended).** Download `ArchClient-1.0.0-windows-x64.zip` (GitHub Actions → Artifacts, or build it yourself, see below), extract it and run `ArchClient.exe`. Python is not required.
-
-The file is not code-signed, so Windows SmartScreen may show "Windows protected your PC" on first run. Click **More info → Run anyway**.
-
-**Option 2: from source.** Install Python 3.10+ from [python.org](https://www.python.org/downloads/) (tick *Add python.exe to PATH*) and double-click `run.bat`. It installs the dependencies on first run.
+- **Installer:** run `ArchClient-1.0.0-windows-x64-setup.exe` and follow the wizard.
+- **Portable:** extract `ArchClient-1.0.0-windows-x64.zip` to any folder and run `ArchClient.exe`. Python is not required.
+- **From source:** install Python 3.10+ from [python.org](https://www.python.org/downloads/) (tick *Add python.exe to PATH*) and double-click `run.bat`. It installs the dependencies on first run.
 
 On first start the launcher creates shortcuts in the Start Menu and on the Desktop. If you remove them in Settings they are not recreated.
 
@@ -84,7 +95,7 @@ python build_windows.py            :: folder + .zip in dist\
 python build_windows.py --onefile  :: single .exe (slower to start, more likely to be flagged by Defender)
 ```
 
-Or push to the `windows` branch: the GitHub Actions workflow `.github/workflows/windowsbuild.yml` builds it and uploads the zip as an artifact.
+The Inno Setup script for the installer is `installer/archclient.iss`. Push to the `windows` branch and the GitHub Actions workflow `.github/workflows/windowsbuild.yml` builds the zip, the setup.exe installer and the standalone exe, then uploads them to the `v1.0.0-windows` release.
 
 ## Layout
 
@@ -104,4 +115,4 @@ Not affiliated with Mojang or Microsoft. Source code: see [LICENSE](LICENSE). Ic
 
 ## Contributors
 
-See the [contributors graph](https://github.com/caobeotime-lang/Arch-client-launcher/graphs/contributors). Code review and release fixes: Claude.
+See the [contributors graph](https://github.com/caobeotime-lang/Arch-client-launcher/graphs/contributors).
