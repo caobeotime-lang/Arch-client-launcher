@@ -4,6 +4,14 @@ on:
   push:
     branches: [ linux ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag của GitHub Release để đăng file lên (vd v1.01). Để trống = chỉ build."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -37,6 +45,11 @@ jobs:
           ls -lh dist/
           test -f "dist/ArchClient/ArchClient"
 
+      - name: Đổi tên file (tên cố định để website trỏ link ổn định)
+        run: |
+          mv dist/*.tar.gz dist/ArchClient-linux-x86_64.tar.gz
+          mv dist/*.AppImage dist/ArchClient-linux-x86_64.AppImage
+
       - uses: actions/upload-artifact@v4
         with:
           name: ArchClient-linux
@@ -44,3 +57,14 @@ jobs:
             dist/*.tar.gz
             dist/*.AppImage
           if-no-files-found: error
+
+      - name: Đăng lên GitHub Release
+        if: ${{ inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Arch Client ${{ inputs.release_tag }}
+          files: |
+            dist/ArchClient-linux-x86_64.tar.gz
+            dist/ArchClient-linux-x86_64.AppImage
