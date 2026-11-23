@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""make_release_notes.py — điền SHA-256 của các file build vào bản ghi release.
+"""make_release_notes.py — fill the SHA-256 hashes of the build files into the release notes.
 
-Cách dùng:
+Usage:
     python tools/make_release_notes.py \
         --template .github/releases/linux.md \
         --out dist/release_notes.md \
         dist/ArchClient-1.0.0-linux-x86_64.tar.gz dist/ArchClient-1.0.0-amd64.deb ...
 
-Template chứa dòng chốt SHA256PLACEHOLDER; script thay nó bằng các dòng
-"<hash>  <tên-file>" (cùng định dạng với sha256sum).
+The template contains the SHA256PLACEHOLDER line; the script replaces it with lines of
+"<hash>  <file-name>" (same format as sha256sum).
 """
 import argparse
 import hashlib
@@ -35,11 +35,11 @@ def main() -> None:
 
     text = Path(a.template).read_text(encoding="utf-8")
     if MARK not in text:
-        raise SystemExit(f"template {a.template} thiếu dòng {MARK}")
+        raise SystemExit(f"template {a.template} is missing the {MARK} marker")
     lines = [f"{sha256(Path(p))}  {Path(p).name}" for p in a.files]
     text = text.replace(MARK, "\n".join(lines))
     Path(a.out).write_text(text, encoding="utf-8")
-    print(f"OK {a.out} (đã điền hash cho {len(a.files)} file)")
+    print(f"OK {a.out} (filled hashes for {len(a.files)} files)")
 
 
 if __name__ == "__main__":
