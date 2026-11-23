@@ -18,6 +18,19 @@ Version 1.0. Windows build: `windows` branch.
 - Creates its menu and desktop shortcuts on first start. If you remove them in Settings they are not recreated.
 - Closing the launcher does not kill a running game. Errors are written to `~/.config/arch-client-launcher/error_logs/`.
 
+## Download
+
+All downloads are on the [Releases page](https://github.com/caobeotime-lang/Arch-client-launcher/releases/tag/v1.0.0-linux):
+
+| File | What it is |
+|---|---|
+| `ArchClient-1.0.0-linux-x86_64.tar.gz` | Ready to run, includes `install.sh` (installs into `~/.local`, no sudo). |
+| `ArchClient-1.0.0-amd64.deb` | Debian, Ubuntu, Mint: `sudo apt install ./ArchClient-1.0.0-amd64.deb` |
+| `ArchClient-1.0.0-x86_64.rpm` | Fedora, RHEL, openSUSE: `sudo dnf install ./ArchClient-1.0.0-x86_64.rpm` |
+| `ArchClient-1.0.0-x86_64.pkg.tar.zst` | Arch Linux: `sudo pacman -U ./ArchClient-1.0.0-x86_64.pkg.tar.zst` |
+| `ArchClient-1.0.0-x86_64.AppImage` | Portable, one file (requires `libfuse2`). |
+| `ArchClient-source-v1.0.0.zip` | Source code of this release. |
+
 ## Run
 
 Requires Python 3.10+. On first start the launcher installs `PyQt6`, `minecraft-launcher-lib` and `requests` if they are missing.
@@ -88,7 +101,7 @@ python3 build_linux.py --appimage  # also an .AppImage
 python3 build_linux.py --deb       # also a .deb (Debian, Ubuntu, Mint)
 ```
 
-The GitHub Actions workflow `.github/workflows/linuxbuild.yml` builds on every push to the `linux` branch. It builds on Ubuntu 22.04, so the result runs on distros with glibc 2.35 or newer.
+The GitHub Actions workflow `.github/workflows/linuxbuild.yml` builds on every push to the `linux` branch and uploads the tar.gz, AppImage, .deb, .rpm and .pkg.tar.zst to the `v1.0.0-linux` release. It builds on Ubuntu 22.04, so the result runs on distros with glibc 2.35 or newer.
 
 ## Layout
 
