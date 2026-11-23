@@ -25,7 +25,7 @@ Requires Python 3.10+. On first start the launcher installs `PyQt6`, `minecraft-
 ```bash
 git clone https://github.com/caobeotime-lang/Arch-client-launcher.git
 cd Arch-client-launcher
-git checkout Linux
+git checkout linux
 ./run.sh            # or: python3 arch_laucher.py
 ```
 

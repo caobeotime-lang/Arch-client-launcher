@@ -34,7 +34,20 @@ MAIN_SCRIPT = HERE / "arch_laucher.py"
 IMG_DIR = HERE / "img"
 ASSETS_DIR = HERE / "assets"
 APP_NAME = "ArchClient"
-APP_VERSION = "1.0.0"
+
+
+def _read_version() -> str:
+    """Lấy phiên bản từ archclient/__init__.py để tên file build luôn khớp với app."""
+    try:
+        for line in (HERE / "archclient" / "__init__.py").read_text(encoding="utf-8").splitlines():
+            if line.startswith("APP_VERSION"):
+                return line.split("=", 1)[1].strip().strip("\"'")
+    except OSError:
+        pass
+    return "0"
+
+
+APP_VERSION = _read_version()
 DIST = HERE / "dist"
 BUILD = HERE / "build"
 
@@ -59,7 +72,7 @@ DESKTOP_ENTRY = f"""[Desktop Entry]
 Type=Application
 Name=Arch Client
 GenericName=Minecraft Launcher
-Comment=Launcher Minecraft Fabric tối ưu FPS cho Linux
+Comment=Launcher Minecraft đa loader (Vanilla, Fabric, Quilt, Forge, NeoForge) cho Linux
 Exec={{exec}}
 Icon=arch-client
 Terminal=false
@@ -86,7 +99,7 @@ cat > "$APPS/arch-client.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Arch Client
-Comment=Launcher Minecraft Fabric tối ưu FPS cho Linux
+Comment=Launcher Minecraft đa loader (Vanilla, Fabric, Quilt, Forge, NeoForge) cho Linux
 Exec=$TARGET/ArchClient
 Icon=arch-client
 Terminal=false
