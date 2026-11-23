@@ -1,8 +1,8 @@
-; installer/archclient.iss — dựng ArchClient-<phiên bản>-windows-x64-setup.exe
-; Biên dịch bằng Inno Setup 6:
+; installer/archclient.iss — builds ArchClient-<version>-windows-x64-setup.exe
+; Compile with Inno Setup 6:
 ;   ISCC /DAPP_VERSION=1.0.0 installer/archclient.iss
-; (workflow windowsbuild.yml gọi tự động sau bước build_windows.py)
-; Cài per-user (không cần quyền admin) đúng tinh thần của launcher.
+; (the windowsbuild.yml workflow calls it automatically after build_windows.py)
+; Per-user install (no admin rights needed), matching the launcher's spirit.
 
 #ifndef APP_VERSION
   #define APP_VERSION "1.0.0"

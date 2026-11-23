@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Các trang: Tổng quan, Thư mục, Mods, Tối ưu, Console, Cài đặt."""
+"""Pages: Home, Files, Mods, Optimize, Console, Settings."""
 from __future__ import annotations
 
 import shutil
@@ -72,7 +72,7 @@ def scroll_page(page: Page, content: QWidget):
 
 
 # ==========================================================================
-# TỔNG QUAN
+# HOME
 # ==========================================================================
 class Meter(QWidget):
     def __init__(self, parent=None):
@@ -255,7 +255,7 @@ class HomePage(Page):
         hl.addWidget(logo, 0, Qt.AlignmentFlag.AlignVCenter)
         root.addWidget(self.hero)
 
-        # --- thẻ thông tin
+        # --- info cards
         cards = hbox(spacing=14)
         self.c_java = StatCard("coffee")
         self.btn_java = Btn("", "refresh-cw", "subtle", "sm")
@@ -269,7 +269,7 @@ class HomePage(Page):
             cards.addWidget(w, 1)
         root.addLayout(cards)
 
-        # --- đã cài
+        # --- installed
         self.inst_title = Label("", 13, 600)
         root.addWidget(self.inst_title)
         tiles = hbox(spacing=14)
@@ -335,7 +335,7 @@ class HomePage(Page):
         return "btn_play_another" if self.ctx.ctl.game_running() else "btn_play"
 
     def set_playing(self, playing):
-        self.play.setText(self.tr_(self._play_key()))        # luôn bấm được: mở thêm game bằng tài khoản khác
+        self.play.setText(self.tr_(self._play_key()))        # always clickable: launch another game with another account
 
     def retranslate(self):
         t = self.tr_
@@ -372,7 +372,7 @@ class HomePage(Page):
 
 
 # ==========================================================================
-# THƯ MỤC
+# FILES
 # ==========================================================================
 class FileDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):  # noqa: N802
@@ -489,7 +489,7 @@ class FilesPage(Page):
             self.ctx.window.set_mc_dir(Path(d))
 
     def _add_files(self):
-        """Thêm file có sẵn (vd OptiFine .jar tự tải về) vào thư mục của mục đang xem."""
+        """Add an existing file (e.g. an OptiFine .jar you downloaded) into the folder of the current tab."""
         key, exts, _lk = self._cur()
         flt = "Files (" + " ".join("*" + e for e in sorted(exts)) + ");;All (*)"
         paths, _ = QFileDialog.getOpenFileNames(self, self.tr_("btn_add_file"), str(Path.home() / "Downloads"), flt)
@@ -503,7 +503,7 @@ class FilesPage(Page):
                 shutil.copy2(p, dest / Path(p).name)
                 n += 1
             except OSError as e:
-                self.ctx.ctl.log(f"Không thêm được {Path(p).name}: {e}", "error")
+                self.ctx.ctl.log(f"Could not add {Path(p).name}: {e}", "error")
         self.ctx.toast(self.tr_("added_n", n=n), "ok")
         self.ctx.window.refresh_all()
 
@@ -529,7 +529,7 @@ class FilesPage(Page):
                         tgt.unlink()
                     n += 1
                 except OSError as e:
-                    self.ctx.ctl.log(f"Không xoá được {name}: {e}", "error")
+                    self.ctx.ctl.log(f"Could not delete {name}: {e}", "error")
             self.ctx.toast(self.tr_("deleted", n=n), "ok")
             self.ctx.window.refresh_all()
         self.ctx.window.confirm(self.tr_("delete_title", n=len(names)), self.tr_("delete_body"),
@@ -763,7 +763,7 @@ class ModsPage(Page):
                 self._load_thumb(card, url)
         self._offset += len(hits)
         self.more.setVisible(self._offset < total)
-        # nút "tải thêm" luôn nằm ngay trước khoảng trống cuối
+        # the "load more" button always sits right before the final spacer
         self.col.removeWidget(self.more)
         self.col.insertWidget(self.col.count() - 1, self.more, 0, Qt.AlignmentFlag.AlignHCenter)
         ver = self.ctx.ctl.mc_version
@@ -790,11 +790,11 @@ class ModsPage(Page):
                 pm2 = QPixmap.fromImage(img)
                 pm2.setDevicePixelRatio(1.0)
                 self._thumbs[url] = pm2
-                while len(self._thumbs) > 120:      # giới hạn bộ nhớ ảnh
+                while len(self._thumbs) > 120:      # cap image memory
                     self._thumbs.popitem(last=False)
                 card.thumb.set_pixmap(pm2)
             except RuntimeError:
-                pass   # thẻ đã bị xoá
+                pass   # card already removed
         self.ctx.ctl.fetch_thumb(url, px, done)
 
     def _open_page(self, card):
@@ -825,7 +825,7 @@ class ModsPage(Page):
 
 
 # ==========================================================================
-# TỐI ƯU
+# OPTIMIZE
 # ==========================================================================
 class ToggleRow(QWidget):
     def __init__(self, checked, parent=None):
@@ -852,7 +852,7 @@ class OptimizePage(Page):
         c = QWidget()
         root = vbox((0, 0, 8, 0), 16, c)
 
-        # --- mod hiệu năng
+        # --- performance mods
         self.g1 = Glass(18)
         l1 = vbox((24, 20, 24, 20), 6, self.g1)
         head = hbox(spacing=12)
@@ -878,7 +878,7 @@ class OptimizePage(Page):
         l1.addWidget(self.progress)
         root.addWidget(self.g1)
 
-        # --- tinh chỉnh theo nền tảng (Linux / Windows)
+        # --- platform tweaks (Linux / Windows)
         self.g2 = Glass(18)
         l2 = vbox((24, 20, 24, 20), 8, self.g2)
         self.t2 = Label("", 16, 650)
@@ -931,7 +931,7 @@ class OptimizePage(Page):
         self.retranslate()
 
     def rebuild_mods(self):
-        """Danh sách mod tối ưu phụ thuộc loader đang chọn."""
+        """The optimization mod list depends on the selected loader."""
         while self.mod_box.count():
             w = self.mod_box.takeAt(0).widget()
             if w is not None:
@@ -1026,7 +1026,7 @@ class ConsolePage(Page):
         pl = vbox((10, 10, 4, 10), 0, panel)
         self.view = QPlainTextEdit()
         self.view.setReadOnly(True)
-        self.view.setMaximumBlockCount(4000)      # giới hạn bộ nhớ console
+        self.view.setMaximumBlockCount(4000)      # console memory cap
         self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.view.setFrameShape(QPlainTextEdit.Shape.NoFrame)
         self.view.viewport().setAutoFillBackground(False)
@@ -1054,7 +1054,7 @@ class ConsolePage(Page):
 
     def append(self, text, level="info"):
         self._queue.append((time.time(), text, level))
-        if len(self._queue) > 6000:         # chặn tràn nếu game spam log
+        if len(self._queue) > 6000:         # guard against overflow when a game spams the log
             del self._queue[:2000]
         if not self._flush.isActive():
             self._flush.start()
@@ -1108,7 +1108,7 @@ class ConsolePage(Page):
 
 
 # ==========================================================================
-# CÀI ĐẶT
+# SETTINGS
 # ==========================================================================
 class SettingRow(QWidget):
     def __init__(self, control: QWidget, vertical=False, stretch=False, parent=None):
@@ -1206,7 +1206,7 @@ class SettingsPage(Page):
             self.s_java.add(r)
         root.addWidget(self.s_java)
 
-        # --- bộ nhớ
+        # --- memory
         self.s_mem = Section()
         total = core.detect_total_ram_mb() or 8192
         self.ram_max = max(2048, min(total, 32768))
@@ -1226,14 +1226,14 @@ class SettingsPage(Page):
         self.s_mem.add(self.r_ram)
         root.addWidget(self.s_mem)
 
-        # --- tài khoản
+        # --- accounts
         self.s_acc = Section()
         self.acc_box = QWidget()
         self.acc_lay = vbox((0, 0, 0, 0), 0, self.acc_box)
         self.s_acc.add(self.acc_box)
         nw = QWidget()
         nl = hbox(spacing=8, parent=nw)
-        self.username = QLineEdit()          # tên cho tài khoản offline mới
+        self.username = QLineEdit()          # name for a new offline account
         self.username.setMaxLength(16)
         self.username.setMinimumWidth(180)
         self.btn_add = Btn("", "user", "ghost")
@@ -1252,7 +1252,7 @@ class SettingsPage(Page):
             self.s_acc.add(r)
         root.addWidget(self.s_acc)
 
-        # --- giao diện
+        # --- interface
         self.s_ui = Section()
         self.sw_sound = Switch(bool(cfg.get("sound", True)))
         self.r_sound = SettingRow(self.sw_sound)
@@ -1296,7 +1296,7 @@ class SettingsPage(Page):
         root.addStretch(1)
         scroll_page(self, c)
 
-        # --- kết nối
+        # --- connection
         self.lang.changed.connect(self._on_lang)
         self.ver.activated.connect(lambda _i: ctx.window.on_version(self.ver.currentText()))
         self.java_path.editingFinished.connect(self._store)
@@ -1345,7 +1345,7 @@ class SettingsPage(Page):
             self.username.clear()
 
     def rebuild_accounts(self):
-        """Vẽ lại danh sách tài khoản (offline + Microsoft)."""
+        """Redraw the account list (offline + Microsoft)."""
         ctl, t = self.ctx.ctl, self.tr_
         while self.acc_lay.count():
             w = self.acc_lay.takeAt(0).widget()
@@ -1382,7 +1382,7 @@ class SettingsPage(Page):
             lay.addWidget(rm)
             self.acc_lay.addWidget(row)
 
-    def set_username(self, name):          # tương thích cũ: danh sách tự cập nhật qua bus.accounts
+    def set_username(self, name):          # legacy compat: the list updates itself via bus.accounts
         pass
 
     def set_logged(self, on: bool):
@@ -1448,7 +1448,7 @@ class SettingsPage(Page):
         self._set("bg_anim", bool(on))
         self.ctx.window.set_bg_anim(bool(on))
 
-    # ----- trạng thái
+    # ----- status
     def set_java(self, text, kind):
         self._java = (text, kind)
         col = {"ok": T.OK, "error": T.ERR, "warn": T.WARN, "busy": T.WARN}.get(kind, T.MUTED)

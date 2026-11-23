@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Lõi launcher — KHÔNG phụ thuộc giao diện.
+"""Launcher core — no GUI dependencies.
 
-Cấu hình, tối ưu Linux, Java, Fabric, Modrinth, shortcut. Mọi hàm nhận một
-callback ``log(msg, level)`` thay vì in thẳng, để GUI hiển thị lên Console.
+Config, Linux tuning, Java, Fabric, Modrinth, shortcuts. Every function takes a
+``log(msg, level)`` callback instead of printing, so the GUI can show it in the Console.
 """
 from __future__ import annotations
 
@@ -42,10 +42,10 @@ def _default_log(msg, level="info"):
 
 
 # ==========================================================================
-# HẰNG SỐ
+# CONSTANTS
 # ==========================================================================
 CONFIG_FILE = CONFIG_DIR / "config.json"
-if IS_WINDOWS:     # cùng chỗ với launcher chính thức -> mod, save, resource pack có sẵn dùng được ngay
+if IS_WINDOWS:     # same place as the official launcher -> existing mods, saves and resource packs just work
     DEFAULT_MC_DIR = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / ".minecraft"
 else:
     DEFAULT_MC_DIR = Path.home() / ".minecraft"
@@ -70,7 +70,7 @@ OPTIMIZATION_MODS = [
 _OPT_FORGE = ["embeddium", "ferrite-core", "modernfix", "entityculling", "immediatelyfast",
               "badoptimizations", "sodium-options-api"]
 
-# (id, tên hiển thị, icon Lucide) — thứ tự hiển thị trong launcher
+# (id, display name, Lucide icon) — display order in the launcher
 LOADERS = [
     ("vanilla", "Vanilla", "loader-vanilla"),
     ("fabric", "Fabric", "loader-fabric"),
@@ -79,7 +79,7 @@ LOADERS = [
     ("neoforge", "NeoForge", "loader-neoforge"),
 ]
 LOADER_IDS = [x[0] for x in LOADERS]
-# loader Modrinth chấp nhận cho từng loader (Quilt chạy được mod Fabric)
+# Modrinth loaders accepted per loader (Quilt runs Fabric mods)
 MODRINTH_LOADERS = {"fabric": ["fabric"], "quilt": ["quilt", "fabric"],
                     "forge": ["forge"], "neoforge": ["neoforge"]}
 VERSION_KINDS = ["release", "snapshot", "all"]
@@ -107,7 +107,7 @@ OPTIMIZED_OPTIONS = {
     "guiScale": "2", "mipmapLevels": "0", "fboEnable": "true", "enableVsync": "false",
 }
 
-# (khoá thư mục, đuôi file, khoá i18n)
+# (folder key, file extensions, i18n key)
 CATEGORIES = [
     ("mods", {".jar"}, "cat_mods"),
     ("resourcepacks", {".zip"}, "cat_resourcepacks"),
@@ -117,7 +117,7 @@ CATEGORIES = [
 REQUIRED_MC_SUBDIRS = ["mods", "resourcepacks", "shaderpacks", "schematics", "saves",
                        "screenshots", "config", "logs", "crash-reports", "versions"]
 
-BROWSE_TYPES = [  # (project_type Modrinth, thư mục đích, khoá i18n)
+BROWSE_TYPES = [  # (Modrinth project_type, target folder, i18n key)
     ("mod", "mods", "type_mod"),
     ("resourcepack", "resourcepacks", "type_resourcepack"),
     ("shader", "shaderpacks", "type_shader"),
@@ -125,10 +125,10 @@ BROWSE_TYPES = [  # (project_type Modrinth, thư mục đích, khoá i18n)
 
 
 def required_java_major(mc_version: str) -> int:
-    """Java tối thiểu theo phiên bản Minecraft (ước lượng; bản đã cài thì đọc javaVersion trong json).
-    <=1.16.x: 8 · 1.17–1.20.4: 17 · 1.20.5–1.x: 21 · 26.x trở đi: 25."""
+    """Minimum Java per Minecraft version (estimate; for installed versions read javaVersion from the json).
+    <=1.16.x: 8 · 1.17–1.20.4: 17 · 1.20.5–1.x: 21 · 26.x and newer: 25."""
     v = (mc_version or "").strip()
-    m = re.match(r"^(\d\d)w(\d\d)[a-z]", v)            # snapshot dạng 24w14a
+    m = re.match(r"^(\d\d)w(\d\d)[a-z]", v)            # snapshot like 24w14a
     if m:
         key = (int(m.group(1)), int(m.group(2)))
         if key >= (25, 45):
@@ -148,14 +148,14 @@ def required_java_major(mc_version: str) -> int:
 
 
 def java_acceptable(have: int, need: int) -> bool:
-    """MC <=1.16 (và Forge cũ) chỉ chạy ổn trên Java 8; các bản mới cần >= yêu cầu."""
+    """MC <=1.16 (and old Forge) only runs well on Java 8; newer versions need >= the requirement."""
     if need <= 8:
         return have == 8
     return have >= need
 
 
 def java_major_from_json(mc_dir: Path, version_id: str):
-    """Đọc javaVersion.majorVersion trong json phiên bản đã cài (theo cả bản cha)."""
+    """Read javaVersion.majorVersion from the installed version's json (following parent versions too)."""
     seen = set()
     vid = version_id
     while vid and vid not in seen:
@@ -172,14 +172,14 @@ def java_major_from_json(mc_dir: Path, version_id: str):
 
 
 # ==========================================================================
-# DANH SÁCH PHIÊN BẢN MINECRAFT (Mojang) + LOADER
+# MINECRAFT VERSION LIST (Mojang) + LOADERS
 # ==========================================================================
 VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 _LIST_TTL = 12 * 3600
 
 
 def _cached_json(name: str, fetch, ttl=_LIST_TTL):
-    """Lấy dữ liệu mạng, cache ở ~/.cache; mất mạng thì dùng cache cũ; không có gì thì None."""
+    """Fetch network data, cache in ~/.cache; offline -> stale cache; nothing available -> None."""
     path = CACHE_DIR / name
     try:
         if time.time() - path.stat().st_mtime < ttl:
@@ -214,7 +214,7 @@ def fetch_version_manifest():
 
 
 def fetch_loader_versions(loader: str):
-    """Các bản Minecraft mà loader hỗ trợ (set id) hoặc None nếu không lấy được."""
+    """Minecraft versions the loader supports (set of ids) or None when unavailable."""
     def fetch():
         return list(mll.mod_loader.get_mod_loader(loader).get_minecraft_versions(False))
     if mll is None or not hasattr(mll, "mod_loader"):
@@ -223,7 +223,7 @@ def fetch_loader_versions(loader: str):
 
 
 def list_mc_versions(kind: str = "release", loader: str = "vanilla", current: str = "") -> list:
-    """Danh sách id phiên bản (mới nhất trước) theo loại + loader. Luôn có bản `current`."""
+    """Version ids (newest first) filtered by type + loader. Always includes `current`."""
     types = {"release": {"release"}, "snapshot": {"release", "snapshot"}}.get(
         kind, {"release", "snapshot", "old_beta", "old_alpha"})
     manifest = fetch_version_manifest()
@@ -242,7 +242,7 @@ def list_mc_versions(kind: str = "release", loader: str = "vanilla", current: st
 
 
 def list_mc_versions_offline(current: str = "") -> list:
-    """Danh sách dựng nhanh lúc mở app (cache hoặc danh sách dự phòng), không gọi mạng."""
+    """Quick list built at app start (cache or fallback list), no network calls."""
     try:
         data = json.loads((CACHE_DIR / "mc_versions.json").read_text(encoding="utf-8"))
         out = [v["id"] for v in data if v["type"] == "release"]
@@ -254,7 +254,7 @@ def list_mc_versions_offline(current: str = "") -> list:
 
 
 def loader_supports(loader: str, mc_version: str):
-    """True/False nếu biết, None nếu không rõ (mất mạng)."""
+    """True/False when known, None when unclear (offline)."""
     if loader == "vanilla":
         return True
     sup = fetch_loader_versions(loader)
@@ -262,7 +262,7 @@ def loader_supports(loader: str, mc_version: str):
 
 
 def find_installed_version(mc_dir: Path, loader: str, mc_version: str):
-    """Tìm id profile đã cài cho (loader, bản MC): vanilla = chính mc_version, các loader khác quét versions/."""
+    """Find the installed profile id for (loader, MC version): vanilla = mc_version itself, other loaders scan versions/."""
     vdir = mc_dir / "versions"
 
     def has_json(name):
@@ -301,19 +301,19 @@ def find_installed_version(mc_dir: Path, loader: str, mc_version: str):
 
 
 def game_dir_for(mc_dir: Path, loader: str, mc_version: str, isolate: bool = True) -> Path:
-    """Thư mục chơi (mods, saves…). Loader có mod được tách riêng theo phiên bản để mod không lẫn nhau."""
+    """Game folder (mods, saves...). Modded loaders get a per-version folder so mods never mix."""
     if loader == "vanilla" or not isolate:
         return mc_dir
     return mc_dir / "instances" / f"{loader}-{mc_version}"
 
 
 # ==========================================================================
-# TỐI ƯU RIÊNG CHO LINUX
+# LINUX-SPECIFIC TUNING
 # ==========================================================================
 IS_LINUX = sys.platform.startswith("linux")
 _PCI_VENDOR = {"0x10de": "nvidia", "0x1002": "amd", "0x1022": "amd", "0x8086": "intel"}
 
-# (khoá config, khoá i18n, mặc định, lệnh cần có)
+# (config key, i18n key, default, required command)
 LINUX_TWEAKS = [
     ("linux_gamemode",      "tw_gamemode",      True,  "gamemoderun"),
     ("linux_mangohud",      "tw_mangohud",      False, "mangohud"),
@@ -329,7 +329,7 @@ LINUX_TWEAKS = [
     ("linux_zgc",           "tw_zgc",           False, None),
 ]
 
-# Tinh chỉnh riêng cho Windows (key config, key i18n, mặc định, lệnh cần có)
+# Windows-specific tweaks (config key, i18n key, default, required command)
 WIN_TWEAKS = [
     ("win_gpu_pref",      "tw_gpu_pref",      True,  None),
     ("win_gamemode",      "tw_win_gamemode",  True,  None),
@@ -385,7 +385,7 @@ def detect_gpu_vendors() -> list:
 
 def detect_cpu_governor():
     if IS_WINDOWS:
-        return winsys.active_power_name()      # trên Windows, "governor" là power plan
+        return winsys.active_power_name()      # on Windows the "governor" is the power plan
     try:
         return Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor").read_text().strip()
     except Exception:
@@ -479,7 +479,7 @@ def build_launch_env(cfg) -> dict:
     env = os.environ.copy()
     if not IS_LINUX:
         return env
-    env.pop("_JAVA_OPTIONS", None)       # hay đè lên -Xmx của launcher
+    env.pop("_JAVA_OPTIONS", None)       # often overrides the launcher's -Xmx
     env.pop("JAVA_TOOL_OPTIONS", None)
     vendors = detect_gpu_vendors()
 
@@ -544,7 +544,7 @@ BASE_JVM_ARGS_ZGC = ["-XX:+UnlockExperimentalVMOptions", "-XX:+UseZGC",
 
 
 def clamp_ram_mb(ram: int) -> int:
-    """Không cấp quá 75% RAM máy — vượt là OOM-killer của Linux giết game."""
+    """Never allocate more than 75% of system RAM — beyond that the Linux OOM-killer kills the game."""
     total = detect_total_ram_mb()
     if total and ram > int(total * 0.75):
         return max(1024, (int(total * 0.75) // 512) * 512)
@@ -567,7 +567,7 @@ def jvm_args(ram: int, cfg, java_major=None) -> list:
             args += ["-XX:+UseNUMA", "-XX:+UseNUMAInterleaving"]
     if IS_LINUX or IS_WINDOWS:
         args.append("-Dorg.lwjgl.util.NoChecks=true")
-        args.append("-Dlog4j2.formatMsgNoLookups=true")   # vá Log4Shell cho các bản MC 1.12–1.18 cũ
+        args.append("-Dlog4j2.formatMsgNoLookups=true")   # Log4Shell patch for old MC 1.12–1.18
     if IS_LINUX and tweak_on(cfg, "linux_system_glfw"):
         glfw = find_system_glfw()
         if glfw:
@@ -575,7 +575,7 @@ def jvm_args(ram: int, cfg, java_major=None) -> list:
     return args
 
 
-linux_jvm_args = jvm_args        # tên cũ, giữ để tương thích
+linux_jvm_args = jvm_args        # legacy name, kept for compatibility
 
 
 def hw_summary() -> dict:
@@ -615,7 +615,7 @@ def linux_hw_summary() -> dict:
 def describe_launch_setup(cfg) -> list:
     lines = []
     if IS_WINDOWS:
-        return lines            # phần Windows do prepare_windows_launch() tự ghi log
+        return lines            # the Windows part is logged by prepare_windows_launch()
     prefix = build_launch_prefix(cfg)
     if prefix:
         lines.append("wrapper: " + " ".join(prefix))
@@ -628,7 +628,7 @@ def describe_launch_setup(cfg) -> list:
         lines.append("env: " + "  ".join(shown))
     gov = detect_cpu_governor()
     if gov in ("powersave", "conservative") and not shutil.which("gamemoderun"):
-        lines.append(f"CPU governor = {gov}: cài «gamemode» hoặc đổi sang «performance» để hết tụt FPS.")
+        lines.append(f"CPU governor = {gov}: install «gamemode» or switch to «performance» to stop FPS drops.")
     return lines
 
 
@@ -649,10 +649,10 @@ def install_gaming_tools(log=_default_log) -> bool:
 
 
 # ==========================================================================
-# WINDOWS: chuẩn bị trước khi chạy game / dọn sau khi game tắt
+# WINDOWS: prepare before launching the game / clean up after it exits
 # ==========================================================================
 def apply_windows_tweak(cfg, key: str, on: bool, java_exe=None) -> None:
-    """Áp / hoàn tác ngay một tuỳ chọn Windows khi người dùng bật tắt công tắc."""
+    """Apply / undo a single Windows option right away when the user toggles the switch."""
     if not IS_WINDOWS:
         return
     if key in winsys.GLOBAL_REG:
@@ -664,18 +664,18 @@ def apply_windows_tweak(cfg, key: str, on: bool, java_exe=None) -> None:
 
 
 def prepare_windows_launch(cfg, java_exe, log=_default_log):
-    """Áp các tối ưu Windows trước khi chạy game. Trả về (creationflags cho Popen, hàm dọn_sau_khi_game_tắt)."""
+    """Apply Windows optimizations before launching the game. Returns (Popen creationflags, cleanup function)."""
     if not IS_WINDOWS:
         return 0, (lambda: None)
     done = []
     if tweak_on(cfg, "win_gpu_pref") and winsys.set_gpu_preference(java_exe, True):
-        done.append("GPU hiệu năng cao")
+        done.append("high-performance GPU")
     if tweak_on(cfg, "win_gamemode") and winsys.apply_global("win_gamemode"):
         done.append("Game Mode")
     if tweak_on(cfg, "win_disable_dvr") and winsys.apply_global("win_disable_dvr"):
-        done.append("tắt Game DVR")
+        done.append("Game DVR off")
     if tweak_on(cfg, "win_disable_fso") and winsys.set_fullscreen_opt_disabled(java_exe, True):
-        done.append("tắt Fullscreen Optimizations")
+        done.append("Fullscreen Optimizations off")
     restore = False
     if tweak_on(cfg, "win_power_plan"):
         plan = winsys.boost_power_plan()
@@ -683,17 +683,17 @@ def prepare_windows_launch(cfg, java_exe, log=_default_log):
             restore = True
             done.append(f"power plan {plan}")
         else:
-            log("Power plan: giữ nguyên (đã ở chế độ cao hoặc máy không có plan hiệu năng cao).", "dim")
+            log("Power plan: left unchanged (already high, or the machine has no high-performance plan).", "dim")
     prio = tweak_on(cfg, "win_high_priority")
     if prio:
-        done.append("ưu tiên CPU")
+        done.append("CPU priority raised")
     if done:
-        log("Tối ưu Windows: " + ", ".join(done), "dim")
+        log("Windows optimizations: " + ", ".join(done), "dim")
     return winsys.game_creationflags(prio), (winsys.restore_power_plan if restore else (lambda: None))
 
 
 # ==========================================================================
-# CẤU HÌNH
+# CONFIG
 # ==========================================================================
 _cfg_lock = threading.Lock()
 
@@ -707,7 +707,7 @@ def default_config() -> dict:
         "mc_version": DEFAULT_MC_VERSION,
         "lang": "auto", "lang_detected": "",
         "java_major": 21,
-        # giao diện
+        # interface
         "sound": True, "sound_volume": 60, "glass_opacity": 88,
         "bg_anim": True, "minimize_on_launch": False, "translucent": "auto",
         **{key: default for key, _i, default, _n in ALL_TWEAKS},
@@ -724,7 +724,7 @@ def load_config() -> dict:
                 if isinstance(data, dict):
                     cfg.update(data)
             except Exception:
-                # file hỏng: giữ lại bản sao để người dùng cứu, rồi dùng mặc định
+                # corrupted file: keep a backup copy so the user can salvage it, then use defaults
                 try:
                     shutil.copy2(CONFIG_FILE, CONFIG_FILE.with_suffix(".json.bad"))
                 except Exception:
@@ -738,14 +738,14 @@ def load_config() -> dict:
 
 
 # ==========================================================================
-# TÀI KHOẢN (nhiều tài khoản offline + Microsoft)
+# ACCOUNTS (multiple offline + Microsoft accounts)
 # ==========================================================================
 def new_account_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
 def migrate_accounts(cfg: dict) -> None:
-    """Đảm bảo cfg['accounts'] hợp lệ. Cấu hình cũ (username / ms_refresh / ms_client) được đổi thành danh sách tài khoản."""
+    """Make sure cfg['accounts'] is valid. Old config (username / ms_refresh / ms_client) is converted into an account list."""
     accs = cfg.get("accounts")
     clean = []
     if isinstance(accs, list):
@@ -771,23 +771,23 @@ def migrate_accounts(cfg: dict) -> None:
 
 
 def save_config(cfg: dict) -> None:
-    """Ghi nguyên tử (file tạm + replace) để mất điện/crash không làm hỏng config."""
+    """Atomic write (temp file + replace) so a power loss / crash never corrupts the config."""
     with _cfg_lock:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             tmp = CONFIG_FILE.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
             try:
-                os.chmod(tmp, 0o600)   # có thể chứa refresh token đăng nhập
+                os.chmod(tmp, 0o600)   # may contain sign-in refresh tokens
             except OSError:
                 pass
             os.replace(tmp, CONFIG_FILE)
         except Exception as e:
-            write_error_log("Lưu cấu hình", exc=e)
+            write_error_log("Saving config", exc=e)
 
 
 def ensure_minecraft_dir(mc_dir: Path, instance: bool = False) -> dict:
-    """instance=True: thư mục chơi riêng (không cần versions/, vì dùng chung versions của .minecraft chính)."""
+    """instance=True: separate game folder (no versions/ needed, it shares the main .minecraft versions)."""
     first_time = not mc_dir.exists()
     mc_dir.mkdir(parents=True, exist_ok=True)
     created = []
@@ -808,7 +808,7 @@ def ensure_minecraft_dir(mc_dir: Path, instance: bool = False) -> dict:
 
 
 def scan_category(mc_dir: Path, key: str, exts: set) -> list:
-    """Danh sách (tên, kích thước byte, là_thư_mục) trong 1 thư mục con của .minecraft."""
+    """List of (name, size in bytes, is_folder) inside one .minecraft subfolder."""
     out = []
     p = mc_dir / key
     try:
@@ -882,7 +882,7 @@ def linux_desktop_dir() -> Path:
 
 
 def install_linux_icons() -> str:
-    """Xuất icon vào hicolor bằng Qt (không cần Pillow)."""
+    """Export icons to hicolor using Qt (no Pillow needed)."""
     if not ICON_PATH.exists():
         return "applications-games"
     try:
@@ -948,7 +948,7 @@ def shortcuts_present() -> bool:
 
 
 def shortcuts_stale() -> bool:
-    """Có shortcut nhưng trỏ sai (vd đã di chuyển thư mục launcher) -> cần ghi lại."""
+    """Shortcuts exist but point to the wrong place (e.g. the launcher folder moved) -> rewrite them."""
     if IS_WINDOWS:
         return winsys.shortcuts_stale()
     try:
@@ -980,7 +980,7 @@ def install_shortcuts() -> list:
         _trust_desktop_file(f)
         written.append(str(f))
     for cmd in (["update-desktop-database", str(apps)], ["xdg-desktop-menu", "forceupdate"],
-                ["kbuildsycoca6"], ["kbuildsycoca5"]):      # KDE: làm mới menu ứng dụng ngay
+                ["kbuildsycoca6"], ["kbuildsycoca5"]):      # KDE: refresh the app menu right away
         if not shutil.which(cmd[0]):
             continue
         try:
@@ -1006,7 +1006,7 @@ def remove_shortcuts() -> list:
 # JAVA
 # ==========================================================================
 def find_bundled_java(major=None):
-    """Java portable do launcher tải. major=None: bản mới nhất; có major: đúng bản đó."""
+    """Portable Java downloaded by the launcher. major=None: newest; with major: exactly that version."""
     if not JRE_DIR.exists():
         return None
     if major is not None:
@@ -1020,7 +1020,7 @@ def find_bundled_java(major=None):
 
 
 def find_any_java(need: int):
-    """Tìm Java thoả `need`: bản portable đúng major, rồi các JDK hệ thống (/usr/lib/jvm…), rồi `java` trong PATH."""
+    """Find Java satisfying `need`: matching portable build, then system JDKs (/usr/lib/jvm...), then `java` on PATH."""
     cands = []
     p = find_bundled_java(need)
     if p:
@@ -1061,7 +1061,7 @@ def get_java_version(java_exe):
         if not m:
             return None
         major = int(m.group(1))
-        if major == 1 and m.group(2):       # Java 8 và cũ hơn ghi "1.8.0_402" -> 8
+        if major == 1 and m.group(2):       # Java 8 and older report "1.8.0_402" -> 8
             return int(m.group(2))
         return major
     except Exception:
@@ -1076,7 +1076,7 @@ def resolve_java_path(configured: str):
 
 
 def adoptium_info(java_major: int):
-    """(url, tên file, sha256) của OpenJDK Temurin hợp với máy, hoặc (None,)*3."""
+    """(url, file name, sha256) of the OpenJDK Temurin build for this machine, or (None,)*3."""
     machine = platform.machine().lower()
     if machine in ("amd64", "x86_64"):
         arch = "x64"
@@ -1103,7 +1103,7 @@ def adoptium_info(java_major: int):
 
 
 def _adoptium_fallback_sha256(url: str):
-    """Khi API tra cứu lỗi: theo redirect tới file thật rồi đọc <file>.sha256.txt cạnh nó. None nếu không lấy được."""
+    """When the lookup API fails: follow the redirect to the real file and read the adjacent <file>.sha256.txt. None if unavailable."""
     try:
         final = requests.head(url, allow_redirects=True, timeout=20, headers={"User-Agent": UA}).url
         r = requests.get(final + ".sha256.txt", timeout=20, headers={"User-Agent": UA})
@@ -1116,7 +1116,7 @@ def _adoptium_fallback_sha256(url: str):
 
 def download_file(url, dest: Path, progress=None, sha256=None, sha512=None,
                   headers=None, timeout=60) -> Path:
-    """Tải về file .part rồi đổi tên — không bao giờ để lại file nửa vời. Kiểm tra hash nếu có."""
+    """Download to a .part file then rename — never leaves a half-written file. Verifies the hash when given."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     h256 = hashlib.sha256() if sha256 else None
@@ -1141,9 +1141,9 @@ def download_file(url, dest: Path, progress=None, sha256=None, sha512=None,
                     if progress:
                         progress(done, total)
         if h256 and h256.hexdigest().lower() != str(sha256).lower():
-            raise IOError("Sai checksum SHA-256 — file tải về bị hỏng")
+            raise IOError("SHA-256 checksum mismatch — the downloaded file is corrupt")
         if h512 and h512.hexdigest().lower() != str(sha512).lower():
-            raise IOError("Sai checksum SHA-512 — file tải về bị hỏng")
+            raise IOError("SHA-512 checksum mismatch — the downloaded file is corrupt")
         os.replace(part, dest)
         return dest
     finally:
@@ -1155,7 +1155,7 @@ def download_file(url, dest: Path, progress=None, sha256=None, sha512=None,
 
 
 def _inside(root: Path, target: Path) -> bool:
-    """target nằm trong root (so sánh theo thành phần đường dẫn, không phải tiền tố chuỗi)."""
+    """target is inside root (compared by path components, not string prefix)."""
     return target == root or root in target.parents
 
 
@@ -1166,15 +1166,15 @@ def safe_extract_tar(archive: Path, dest: Path) -> None:
         for m in t.getmembers():
             target = (dest / m.name).resolve()
             if not _inside(root, target):
-                raise IOError(f"Tệp nén chứa đường dẫn nguy hiểm: {m.name}")
-            if m.issym():       # symlink tương đối so với thư mục chứa nó
+                raise IOError(f"Archive contains an unsafe path: {m.name}")
+            if m.issym():       # symlink relative to its containing folder
                 link = (target.parent / m.linkname).resolve()
-            elif m.islnk():     # hardlink tính từ gốc giải nén
+            elif m.islnk():     # hardlink relative to the extraction root
                 link = (dest / m.linkname).resolve()
             else:
                 continue
             if not _inside(root, link):
-                raise IOError(f"Tệp nén chứa liên kết trỏ ra ngoài: {m.name} -> {m.linkname}")
+                raise IOError(f"Archive contains a link pointing outside: {m.name} -> {m.linkname}")
         try:
             t.extractall(dest, filter="data")  # Python 3.12+
         except TypeError:
@@ -1189,7 +1189,7 @@ def safe_extract_zip(archive: Path, dest: Path) -> None:
         for name in z.namelist():
             target = (dest / name).resolve()
             if target != root and root not in target.parents:
-                raise IOError(f"Tệp nén chứa đường dẫn nguy hiểm: {name}")
+                raise IOError(f"Archive contains an unsafe path: {name}")
         z.extractall(dest)
 
 
@@ -1221,15 +1221,15 @@ def install_java_via_pkg_manager(java_major: int, log=_default_log) -> bool:
 
 
 def install_java_portable(java_major: int, log=_default_log, progress=None):
-    """Tải Temurin về thư mục cấu hình của launcher (không cần root / admin, mọi distro và Windows)."""
+    """Download Temurin into the launcher's config folder (no root / admin needed, any distro and Windows)."""
     if requests is None:
-        raise RuntimeError("Thiếu thư viện 'requests'")
+        raise RuntimeError("The 'requests' library is missing")
     url, name, sha = adoptium_info(java_major)
     if not url:
-        raise RuntimeError("Kiến trúc CPU này chưa được hỗ trợ tự động cài Java")
+        raise RuntimeError("Automatic Java install is not supported on this CPU architecture")
     JRE_DIR.mkdir(parents=True, exist_ok=True)
     archive = JRE_DIR / (name or f"openjdk{java_major}{'.zip' if IS_WINDOWS else '.tar.gz'}")
-    log(f"Đang tải OpenJDK {java_major} (Eclipse Temurin)…", "info")
+    log(f"Downloading OpenJDK {java_major} (Eclipse Temurin)…", "info")
     last = [-10]
 
     def prog(done, total):
@@ -1242,9 +1242,9 @@ def install_java_portable(java_major: int, log=_default_log, progress=None):
                 log(f"  {pct}%  ({done >> 20} / {total >> 20} MB)", "dim")
 
     if not sha:
-        log("Không lấy được checksum SHA-256 của Java, bỏ qua bước kiểm tra.", "warn")
+        log("Could not get the SHA-256 checksum of Java, skipping verification.", "warn")
     download_file(url, archive, progress=prog, sha256=sha)
-    log("Đang giải nén Java…", "info")
+    log("Extracting Java…", "info")
     tmp = JRE_DIR / f".extract-{int(java_major)}"
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
@@ -1252,9 +1252,9 @@ def install_java_portable(java_major: int, log=_default_log, progress=None):
         _extract_archive(archive, tmp)
         tops = [p for p in tmp.iterdir() if (p / "bin" / JAVA_EXE).exists()]
         if not tops:
-            raise RuntimeError("Đã giải nén nhưng không thấy file java")
+            raise RuntimeError("Extraction finished but the java binary is missing")
         dest = JRE_DIR / f"jdk-{int(java_major)}"
-        shutil.rmtree(dest, ignore_errors=True)      # chỉ thay đúng bản cùng major, các major khác giữ nguyên
+        shutil.rmtree(dest, ignore_errors=True)      # replace only the same major, other majors stay
         shutil.move(str(tops[0]), str(dest))
     finally:
         archive.unlink(missing_ok=True)
@@ -1266,10 +1266,10 @@ def install_java_portable(java_major: int, log=_default_log, progress=None):
 
 
 # ==========================================================================
-# FABRIC / PHIÊN BẢN
+# FABRIC / VERSIONS
 # ==========================================================================
 def offline_uuid(name: str) -> str:
-    """UUID offline giống Minecraft: nameUUIDFromBytes('OfflinePlayer:<tên>')."""
+    """Minecraft-compatible offline UUID: nameUUIDFromBytes('OfflinePlayer:<name>')."""
     digest = bytearray(hashlib.md5(("OfflinePlayer:" + name).encode("utf-8")).digest())
     digest[6] = (digest[6] & 0x0F) | 0x30
     digest[8] = (digest[8] & 0x3F) | 0x80
@@ -1289,7 +1289,7 @@ MODRINTH_API = "https://api.modrinth.com/v2"
 
 def _mr_get(path, **kw):
     if requests is None:
-        raise RuntimeError("Thiếu thư viện 'requests'")
+        raise RuntimeError("The 'requests' library is missing")
     kw.setdefault("timeout", 20)
     r = requests.get(MODRINTH_API + path, headers={"User-Agent": UA}, **kw)
     r.raise_for_status()
@@ -1300,7 +1300,7 @@ def modrinth_search(query, ptype, mc_version, offset=0, limit=20, loader="fabric
     facets = [[f"project_type:{ptype}"], [f"versions:{mc_version}"]]
     if ptype == "mod":
         loaders = MODRINTH_LOADERS.get(loader)
-        if not loaders:        # vanilla: không có mod
+        if not loaders:        # vanilla: no mods
             return [], 0
         facets.insert(1, [f"categories:{x}" for x in loaders])
     data = _mr_get("/search", params={
@@ -1327,7 +1327,7 @@ def _pick_file(version: dict):
 
 
 def _file_matches(path: Path, sha512) -> bool:
-    """True nếu không có hash để so, hoặc SHA-512 của file khớp."""
+    """True when there is no hash to compare, or the file's SHA-512 matches."""
     if not sha512:
         return True
     h = hashlib.sha512()
@@ -1341,18 +1341,18 @@ def _file_matches(path: Path, sha512) -> bool:
 
 
 class ModrinthInstaller:
-    """Cài mod / resource pack / shader về đúng thư mục, kèm phụ thuộc bắt buộc.
+    """Install mods / resource packs / shaders into the right folder, with required dependencies.
 
-    * Ghi lại file đã cài vào ``.archclient-installed.json`` trong .minecraft để
-      nâng cấp đúng file cũ (không xoá nhầm mod khác trùng tên).
-    * Tải qua file .part + kiểm tra SHA-512 nên không bao giờ có .jar hỏng.
-    * Phụ thuộc có ghim phiên bản (vd Iris ghim bản Sodium) được cài đúng bản ghim.
+    * Records installed files in ``.archclient-installed.json`` inside .minecraft so
+      upgrades replace the old file (never deleting a different mod with a similar name).
+    * Downloads via a .part file + SHA-512 verification, so a corrupt .jar never lands.
+    * Dependencies that pin a version (e.g. Iris pins Sodium) install the pinned build.
     """
 
     FOLDER = {"mod": "mods", "resourcepack": "resourcepacks", "shader": "shaderpacks"}
 
     def __init__(self, mc_dir: Path, mc_version: str, log=_default_log, progress=None, loader="fabric"):
-        self.mc_dir = Path(mc_dir)          # thư mục chơi (game dir), nơi có mods/…
+        self.mc_dir = Path(mc_dir)          # game dir, the folder that holds mods/…
         self.mc_version = mc_version
         self.loaders = MODRINTH_LOADERS.get(loader, ["fabric"])
         self.log = log
@@ -1386,7 +1386,7 @@ class ModrinthInstaller:
         except OSError:
             return False
 
-    # ---- tải 1 phiên bản
+    # ---- download one version
     def _download_version(self, version: dict, folder_name: str, pinned=False) -> bool:
         pf = _pick_file(version)
         if not pf:
@@ -1399,11 +1399,11 @@ class ModrinthInstaller:
         size = pf.get("size")
         sha512 = (pf.get("hashes") or {}).get("sha512")
         if dest.exists() and (not size or dest.stat().st_size == size) and _file_matches(dest, sha512):
-            self.log(f"  {fname}: đã có bản này", "dim")
+            self.log(f"  {fname}: already have this build", "dim")
         else:
-            self.log(f"  Đang tải {fname} …", "info")
+            self.log(f"  Downloading {fname} …", "info")
             download_file(pf["url"], dest, progress=self.progress, sha512=sha512)
-            self.log(f"  Xong: {fname}", "ok")
+            self.log(f"  Done: {fname}", "ok")
         old = self.manifest.get(pid)
         if old and old.get("file") and old["file"] != fname:
             try:
@@ -1419,14 +1419,14 @@ class ModrinthInstaller:
         if ptype == "mod":
             return modrinth_versions(project, self.mc_version, self.loaders)
         versions = modrinth_versions(project, self.mc_version)
-        return versions or modrinth_versions(project)  # pack thường hỗ trợ nhiều bản
+        return versions or modrinth_versions(project)  # packs usually support many versions
 
-    # ---- cài dự án
+    # ---- install project
     def install(self, slug: str, ptype: str = "mod", with_deps=True, depth=0) -> bool:
         folder_name = self.FOLDER.get(ptype, "mods")
         versions = self._fetch_versions(slug, ptype)
         if not versions:
-            self.log(f"  {slug}: không có bản cho Minecraft {self.mc_version}", "warn")
+            self.log(f"  {slug}: no build for Minecraft {self.mc_version}", "warn")
             return False
         chosen = versions[0]
         pid = chosen.get("project_id") or slug
@@ -1435,14 +1435,14 @@ class ModrinthInstaller:
         rec = self.manifest.get(pid)
         pf = _pick_file(chosen)
         if rec and (folder / rec["file"]).exists() and rec.get("pinned"):
-            self.log(f"  {slug}: giữ bản đã ghim theo phụ thuộc", "dim")
+            self.log(f"  {slug}: keeping the version pinned by a dependency", "dim")
         elif rec and pf and rec["file"] == os.path.basename(pf["filename"]) and (folder / rec["file"]).exists():
-            self.log(f"  {slug}: đã là bản mới nhất", "dim")
+            self.log(f"  {slug}: already the latest build", "dim")
         elif not rec and ptype == "mod" and self._legacy_present(folder, slug):
-            self.log(f"  {slug}: đã có sẵn, bỏ qua", "dim")
+            self.log(f"  {slug}: already present, skipping", "dim")
         else:
             if not self._download_version(chosen, folder_name):
-                self.log(f"  {slug}: không có file để tải", "warn")
+                self.log(f"  {slug}: no file to download", "warn")
                 return False
         if with_deps and ptype == "mod" and depth < 3:
             self._install_deps(chosen, depth)
@@ -1464,7 +1464,7 @@ class ModrinthInstaller:
                     vs = modrinth_versions(dpid, self.mc_version, self.loaders)
                     dver = vs[0] if vs else None
                 if not dver:
-                    self.log(f"  Phụ thuộc {key}: không có bản hợp", "warn")
+                    self.log(f"  Dependency {key}: no matching build", "warn")
                     continue
                 dpid = dver.get("project_id") or dpid
                 self._seen.add(dpid)
@@ -1477,13 +1477,13 @@ class ModrinthInstaller:
                     proj = _mr_get(f"/project/{dpid}")
                     if self._legacy_present(self.mc_dir / "mods", proj.get("slug", "")):
                         continue
-                self.log(f"  Phụ thuộc bắt buộc: {dver.get('name') or dpid}", "dim")
+                self.log(f"  Required dependency: {dver.get('name') or dpid}", "dim")
                 if self._download_version(dver, "mods", pinned=bool(dvid)):
                     if depth + 1 < 3:
                         self._install_deps(dver, depth + 1)
             except Exception as e:
-                self.log(f"  Lỗi cài phụ thuộc {key}: {e}", "warn")
-                write_error_log(f"Phụ thuộc Modrinth ({key})", exc=e)
+                self.log(f"  Dependency install failed {key}: {e}", "warn")
+                write_error_log(f"Modrinth dependency ({key})", exc=e)
 
 
 def write_optimized_options(mc_dir: Path) -> Path:

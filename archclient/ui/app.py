@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Điểm vào GUI: tạo QApplication, splash, cửa sổ chính."""
+"""GUI entry point: creates the QApplication, splash and main window."""
 from __future__ import annotations
 
 import ctypes
@@ -22,7 +22,7 @@ from .theme import build_qss
 
 
 def x11_has_compositor():
-    """True/False nếu hỏi được X server có trình compositing không; None nếu không rõ."""
+    """True/False when the X server answers whether a compositor runs; None when unknown."""
     try:
         x11 = ctypes.CDLL("libX11.so.6")
         x11.XOpenDisplay.restype = ctypes.c_void_p
@@ -57,7 +57,7 @@ def decide_translucent(cfg, platform_name: str) -> bool:
     if mode in ("on", "true", "1"):
         return True
     if core.IS_WINDOWS:
-        return True              # DWM luôn có compositing
+        return True              # DWM always composites
     if platform_name == "xcb" and os.environ.get("XDG_SESSION_TYPE", "").lower() != "wayland":
         has = x11_has_compositor()
         return True if has is None else bool(has)
@@ -71,12 +71,12 @@ class _Init(QObject):
 def main(argv=None) -> int:
     argv = list(argv or sys.argv)
     if core.IS_WINDOWS:
-        core.winsys.set_app_user_model_id()      # taskbar dùng icon + nhóm của Arch Client
-    # Trên Wayland thật thì để Qt tự chọn; không ép xcb.
+        core.winsys.set_app_user_model_id()      # taskbar shows Arch Client's icon + group
+    # On real Wayland let Qt choose; never force xcb.
     app = QApplication(argv)
-    app.setApplicationName(APP_ID)        # WM_CLASS = arch-client (khớp StartupWMClass)
+    app.setApplicationName(APP_ID)        # WM_CLASS = arch-client (matches StartupWMClass)
     app.setApplicationDisplayName(APP_NAME)
-    app.setDesktopFileName(APP_ID)       # khớp arch-client.desktop -> icon đúng trên taskbar/Wayland
+    app.setDesktopFileName(APP_ID)       # matches arch-client.desktop -> correct icon on taskbar/Wayland
     app.setStyle("Fusion")
     app.setStyleSheet(build_qss())
     icon = resource_path("img/icon.png")
@@ -111,7 +111,7 @@ def main(argv=None) -> int:
                     cfg["lang_detected"] = lang
             core.ensure_minecraft_dir(core.Path(cfg["mc_dir"]))
         except Exception as e:
-            write_error_log("Khởi tạo", exc=e)
+            write_error_log("Startup", exc=e)
             lang = "en"
         init.done.emit(lang)
 
@@ -131,7 +131,7 @@ def main(argv=None) -> int:
             info = detect_os()
             ctl.log(f"{info.get('pretty')} · {app.platformName()} · Python {sys.version.split()[0]}", "dim")
             if not translucent:
-                ctl.log("Không phát hiện compositor: tắt nền trong suốt (đặt ARCH_TRANSLUCENT=1 để ép bật).", "dim")
+                ctl.log("No compositor detected: translucent background off (set ARCH_TRANSLUCENT=1 to force it on).", "dim")
             QTimer.singleShot(250, ctl.check_java_startup)
             QTimer.singleShot(400, ctl.restore_login)
             QTimer.singleShot(500, win.reload_versions)
@@ -140,7 +140,7 @@ def main(argv=None) -> int:
             QTimer.singleShot(900, ctl.init_discord)
             QTimer.singleShot(1200, sound.preload)
         except Exception as e:
-            write_error_log("Dựng giao diện", exc=e)
+            write_error_log("Building the interface", exc=e)
             raise
 
     init.done.connect(lambda lang: QTimer.singleShot(700, lambda: start(lang)))

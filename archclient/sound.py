@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Âm thanh giao diện — tự tổng hợp file WAV (không cần tải gì), phát bằng Qt hoặc paplay/pw-play/aplay."""
+"""Interface sounds — synthesizes its own WAV files (nothing to download), played via Qt or paplay/pw-play/aplay."""
 from __future__ import annotations
 
 import json
@@ -21,7 +21,7 @@ SOUND_DIR = CACHE_DIR / "sounds" / "v2"
 
 
 def _env(i: int, n: int, attack=0.004, power=3.0) -> float:
-    """Đường bao: vào rất nhanh, tắt mượt để không có tiếng 'tách' ở đầu/cuối."""
+    """Envelope: very fast attack, smooth release so there is no 'click' at either end."""
     t = i / max(1, n - 1)
     a = min(1.0, i / (SR * attack))
     return a * (1.0 - t) ** power
@@ -39,7 +39,7 @@ def _tone(freq, dur, amp=0.4, f_end=None, power=3.0, harm=0.25) -> list:
 
 
 def _mix(*parts) -> list:
-    """Mỗi phần là (offset_giây, mẫu)."""
+    """Each part is (offset in seconds, samples)."""
     length = max(int(SR * off) + len(smp) for off, smp in parts)
     buf = [0.0] * length
     for off, smp in parts:
@@ -75,7 +75,7 @@ def _build() -> dict:
 
 
 def ensure_sounds() -> dict:
-    """Trả về {tên: đường_dẫn}; tạo file WAV nếu chưa có."""
+    """Returns {name: path}; creates the WAV files when missing."""
     paths = {}
     try:
         SOUND_DIR.mkdir(parents=True, exist_ok=True)
@@ -86,7 +86,7 @@ def ensure_sounds() -> dict:
         for n in names:
             paths[n] = SOUND_DIR / f"{n}.wav"
     except Exception as e:
-        write_error_log("Tạo âm thanh giao diện", exc=e)
+        write_error_log("Generating interface sounds", exc=e)
     return paths
 
 
@@ -103,24 +103,24 @@ _PROBE_FILE = CACHE_DIR / "audio_probe.json"
 
 
 def probe_qt_audio() -> bool:
-    """QtMultimedia có thể làm sập cả tiến trình (segfault) trên máy không có thiết bị âm thanh /
-    backend lỗi — không bắt được bằng try/except. Nên thử trước trong tiến trình con, nhớ kết quả."""
+    """QtMultimedia can crash the whole process (segfault) on machines with no audio device or a broken
+    backend — try/except cannot catch that. So probe it in a child process first and remember the result."""
     try:
         d = json.loads(_PROBE_FILE.read_text(encoding="utf-8"))
         if d.get("v") == 1 and time.time() - d.get("t", 0) < 14 * 86400:
             return bool(d.get("ok"))
     except Exception:
         pass
-    if getattr(sys, "frozen", False):   # bản đóng gói: sys.executable là chính app -> không probe
-        # Windows: QSoundEffect không sập khi thiếu loa; thiết bị được kiểm tra lại ở luồng GUI (_make_effects).
-        # Linux: dùng pw-play/paplay.
+    if getattr(sys, "frozen", False):   # frozen build: sys.executable is the app itself -> do not probe
+        # Windows: QSoundEffect does not crash when speakers are missing; the device is re-checked on the GUI thread (_make_effects).
+        # Linux: use pw-play/paplay.
         return IS_WINDOWS
     ok = False
     try:
         env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
         exe = sys.executable
         if IS_WINDOWS and exe.lower().endswith("pythonw.exe"):
-            exe = exe[:-len("pythonw.exe")] + "python.exe"       # pythonw không có stdout để đọc kết quả
+            exe = exe[:-len("pythonw.exe")] + "python.exe"       # pythonw has no stdout to read the result from
         r = subprocess.run([exe, "-c", _PROBE_CODE], env=env, timeout=12,
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, **hidden_kwargs())
         ok = r.returncode == 0 and any(l.startswith("QTAUDIO") and int(l.split()[1]) > 0
@@ -136,7 +136,7 @@ def probe_qt_audio() -> bool:
 
 
 class SoundPlayer:
-    """Phát âm thanh giao diện, không bao giờ ném lỗi ra ngoài."""
+    """Play an interface sound, never raises."""
 
     MIN_GAP = {"hover": 0.07}
 
@@ -145,15 +145,15 @@ class SoundPlayer:
         self.volume = max(0, min(100, int(volume)))
         self._paths: dict = {}
         self._effects: dict = {}
-        self._qt_ok = False       # chỉ True khi probe trong tiến trình con thành công
-        self._ready = False       # đã chuẩn bị xong file + probe (chạy nền)
+        self._qt_ok = False       # True only when the child-process probe succeeded
+        self._ready = False       # files + probe finished (runs in background)
         self._starting = False
         self._cli = None
         self._procs: list = []
         self._last: dict = {}
 
     def preload(self) -> None:
-        """Tạo WAV + dò backend âm thanh ở luồng nền (không làm đứng giao diện)."""
+        """Generate WAVs + probe the audio backend on a background thread (never blocks the UI)."""
         if self._ready or self._starting:
             return
         self._starting = True
@@ -164,7 +164,7 @@ class SoundPlayer:
                 if IS_WINDOWS:
                     try:
                         import winsound  # noqa: F401
-                        self._cli = "winsound"       # dự phòng khi Qt Multimedia không có
+                        self._cli = "winsound"       # fallback when Qt Multimedia is unavailable
                     except ImportError:
                         pass
                 else:
@@ -174,17 +174,17 @@ class SoundPlayer:
                             break
                 self._qt_ok = probe_qt_audio()
             except Exception as e:
-                write_error_log("Khởi tạo âm thanh", exc=e)
+                write_error_log("Audio init", exc=e)
             self._ready = True
         threading.Thread(target=work, name="arch-sound-init", daemon=True).start()
 
     def _make_effects(self) -> None:
-        """Tạo QSoundEffect (phải ở luồng GUI). Gọi lần đầu khi cần phát."""
+        """Create QSoundEffect (must run on the GUI thread). Called on first playback."""
         try:
             from PyQt6.QtMultimedia import QMediaDevices, QSoundEffect
             from PyQt6.QtCore import QUrl
             if IS_WINDOWS and not QMediaDevices.audioOutputs():
-                self._qt_ok = False          # không có loa/tai nghe: khỏi tạo hiệu ứng
+                self._qt_ok = False          # no speakers/headphones: skip the effects
                 return
             for name, p in self._paths.items():
                 e = QSoundEffect()
@@ -231,7 +231,7 @@ class SoundPlayer:
             pass
 
     def _play_cli(self, name: str) -> None:
-        if not self._cli or name == "hover":   # hover quá dày để spawn tiến trình
+        if not self._cli or name == "hover":   # hover is too frequent to spawn a process
             return
         self._procs = [p for p in self._procs if p.poll() is None]
         if len(self._procs) >= 4:

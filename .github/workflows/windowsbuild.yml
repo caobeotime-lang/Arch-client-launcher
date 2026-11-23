@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Tag của GitHub Release để đăng file lên (vd v1.01). Để trống = chỉ build."
+        description: "GitHub Release tag to upload the files to (e.g. v1.0.0-windows). Leave empty to use tag v<version>-windows."
         required: false
         default: ""
 
@@ -23,31 +23,84 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build ArchClient.exe (onedir + zip)
+      - name: Read the app version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path "archclient/__init__.py" -Pattern 'APP_VERSION\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          Add-Content $env:GITHUB_OUTPUT "version=$v"
+          Add-Content $env:GITHUB_OUTPUT "tag=v$v-windows"
+          Write-Host "Version: $v"
+
+      - name: Build ArchClient onedir + zip
         run: python build_windows.py
 
-      - name: Kiểm tra file build
+      - name: Check the build output
         shell: pwsh
         run: |
           Get-ChildItem dist
-          if (-not (Test-Path "dist/ArchClient/ArchClient.exe")) { throw "thiếu ArchClient.exe" }
+          if (-not (Test-Path "dist/ArchClient/ArchClient.exe")) { throw "ArchClient.exe is missing" }
 
-      - name: Đổi tên file (tên cố định để website trỏ link ổn định)
+      - name: Build the installer (Inno Setup)
         shell: pwsh
-        run: Move-Item (Get-ChildItem dist/*.zip | Select-Object -First 1).FullName dist/ArchClient-windows-x64.zip
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAPP_VERSION=$env:VERSION" installer/archclient.iss
+          if (-not (Test-Path "dist/ArchClient-$($env:VERSION)-windows-x64-setup.exe")) { throw "setup.exe is missing" }
+
+      - name: Build the single-file executable (standalone .exe)
+        run: python build_windows.py --onefile --skip-deps
+
+      - name: Rename the standalone build
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: Move-Item dist/ArchClient.exe "dist/ArchClient-$($env:VERSION)-windows-x64-standalone.exe" -Force
 
       - uses: actions/upload-artifact@v4
         with:
           name: ArchClient-windows
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
+            dist/*-standalone.exe
           if-no-files-found: error
 
-      - name: Đăng lên GitHub Release
-        if: ${{ inputs.release_tag != '' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.release_tag }}
-          target_commitish: ${{ github.sha }}
-          name: Arch Client ${{ inputs.release_tag }}
-          files: |
-            dist/ArchClient-windows-x64.zip
+      - name: Write the release notes (fill in SHA-256)
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem dist -File | Where-Object {
+            $_.Name -like "*.zip" -or $_.Name -like "*-setup.exe" -or $_.Name -like "*-standalone.exe"
+          } | ForEach-Object { $_.FullName }
+          python tools/make_release_notes.py --template .github/releases/windows.md --out dist/release_notes.md @files
+
+      - name: Upload files + update the Release page
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_INPUT: ${{ inputs.release_tag }}
+          TAG_DEFAULT: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $tag = if ($env:TAG_INPUT) { $env:TAG_INPUT } else { $env:TAG_DEFAULT }
+          $repo = $env:GITHUB_REPOSITORY
+          $title = "Arch Client Launcher v$($env:VERSION) for Windows"
+          $files = Get-ChildItem dist -File | Where-Object {
+            $_.Name -like "*.zip" -or $_.Name -like "*-setup.exe" -or $_.Name -like "*-standalone.exe"
+          } | ForEach-Object { $_.FullName }
+          if (gh release view "$tag" -R $repo *> $null) {
+            gh release edit "$tag" -R $repo --title $title --notes-file dist/release_notes.md
+            gh release upload "$tag" -R $repo --clobber @files
+            Write-Host "Updated release $tag ($($files.Count) files)."
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            gh release create "$tag" -R $repo --target $env:GITHUB_SHA --title $title --notes-file dist/release_notes.md
+            gh release upload "$tag" -R $repo --clobber @files
+            Write-Host "Created release $tag and uploaded $($files.Count) files."
+          } else {
+            Write-Host "::warning::Release $tag does not exist yet - only saving the artifact. Run the workflow manually with release_tag to create the release."
+          }
