@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Arch Launcher is a free, open-source Minecraft launcher for Windows and Linux. Supports Vanilla, Fabric, Quilt, Forge and NeoForge, installs the right Java and mods from Modrinth.">
+<link rel="icon" type="image/png" href="img/icon.png">
+<title>Arch Launcher — Minecraft launcher for Windows and Linux</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --blue-900:#0e2547;
+    --blue-700:#1c4fa1;
+    --blue-500:#2f6fe4;
+    --blue-300:#8ebbff;
+    --blue-150:#dcebff;
+    --blue-050:#f2f7ff;
+    --white:#ffffff;
+    --ink:#10203a;
+    --ink-soft:#4d5f7d;
+    --line:#d7e4f7;
+    --radius:10px;
+    --max:1120px;
+  }
+
+  @media (prefers-reduced-motion: no-preference){
+    html{ scroll-behavior:smooth; }
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:'Inter', system-ui, sans-serif;
+    color:var(--ink);
+    background:var(--white);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{
+    font-family:'Sora', system-ui, sans-serif;
+    color:var(--blue-900);
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  a{ color:inherit; }
+  code, .mono{ font-family:'JetBrains Mono', ui-monospace, monospace; }
+  .wrap{ max-width:var(--max); margin:0 auto; padding:0 28px; }
+
+  a:focus-visible, button:focus-visible{
+    outline:3px solid var(--blue-500);
+    outline-offset:2px;
+    border-radius:4px;
+  }
+
+  /* ---------- NAV ---------- */
+  header.site{
+    position:sticky; top:0; z-index:50;
+    background:rgba(255,255,255,0.86);
+    backdrop-filter:saturate(160%) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 28px;
+  }
+  .brand{
+    display:flex; align-items:center; gap:10px;
+    font-family:'Sora', sans-serif; font-weight:700; font-size:1.05rem;
+    color:var(--blue-900); text-decoration:none;
+  }
+  .brand-mark{
+    width:34px; height:34px; flex:none;
+    border-radius:6px; overflow:hidden; display:block;
+  }
+  .brand-mark img{ width:100%; height:100%; object-fit:contain; display:block; }
+
+  .nav-links{ display:flex; align-items:center; gap:28px; list-style:none; margin:0; padding:0; }
+  .nav-links a{
+    text-decoration:none; font-weight:500; font-size:0.95rem; color:var(--ink-soft);
+    padding:6px 2px; border-bottom:2px solid transparent;
+  }
+  .nav-links a:hover{ color:var(--blue-700); border-bottom-color:var(--blue-300); }
+  .nav-links .btn-discord{
+    background:var(--blue-900); color:var(--white); padding:9px 16px;
+    border-radius:8px; font-weight:600; border-bottom:none;
+  }
+  .nav-links .btn-discord:hover{ background:var(--blue-700); }
+
+  /* ---------- HERO ---------- */
+  .hero{
+    position:relative; overflow:hidden;
+    background:var(--blue-050);
+    border-bottom:1px solid var(--line);
+  }
+  .hero .wrap{
+    display:grid; grid-template-columns:1fr; align-items:center;
+    gap:40px; padding-top:76px; padding-bottom:76px;
+  }
+  .hero h1{
+    font-size:clamp(2.4rem, 4.4vw, 3.6rem);
+    line-height:1.06;
+  }
+  .hero .lede{
+    margin-top:20px; max-width:44ch;
+    color:var(--ink-soft); font-size:1.08rem;
+  }
+  .hero-ctas{ margin-top:32px; display:flex; gap:14px; flex-wrap:wrap; }
+  .btn{
+    display:inline-flex; align-items:center; gap:9px;
+    padding:13px 22px; border-radius:9px; font-weight:600; font-size:0.98rem;
+    text-decoration:none; border:1px solid transparent; cursor:pointer;
+  }
+  .btn-primary{ background:var(--blue-500); color:var(--white); }
+  .btn-primary:hover{ background:var(--blue-700); }
+  .btn-ghost{ background:var(--white); color:var(--blue-900); border-color:var(--line); }
+  .btn-ghost:hover{ border-color:var(--blue-500); }
+
+
+  /* ---------- SECTION HEADERS ---------- */
+  .section{ padding:72px 0; }
+  .section-head{ max-width:56ch; margin-bottom:40px; }
+  .section-head h2{ font-size:clamp(1.5rem,2.6vw,2rem); }
+  .section-head p{ color:var(--ink-soft); margin-top:10px; }
+
+  /* ---------- DOWNLOAD GRID ---------- */
+  .grid{
+    display:grid; grid-template-columns:repeat(2, 1fr); gap:20px;
+  }
+  .card{
+    border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--white); overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  .card-head{
+    display:flex; align-items:center; gap:12px;
+    padding:20px 22px; border-bottom:1px solid var(--line);
+    border-left:4px solid var(--accent, var(--blue-500));
+  }
+  .card-head .icon{ width:34px; height:34px; flex:none; object-fit:contain; }
+  .card-head h3{ font-size:1.15rem; }
+  .card-head .sub{ font-size:0.85rem; color:var(--ink-soft); margin-top:2px; }
+  .card-body{ padding:6px 22px 20px; flex:1; display:flex; flex-direction:column; }
+  .card-body > .desc{ color:var(--ink-soft); font-size:0.94rem; margin:14px 0 18px; }
+
+  .filelist{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .filelist li{
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    padding:12px 14px; background:var(--blue-050); border-radius:8px;
+  }
+  .filelist .fname{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .filelist .fname .name{ font-size:0.88rem; word-break:break-all; }
+  .filelist .fname .tag{ font-size:0.78rem; color:var(--ink-soft); }
+  .dl-btn{
+    flex:none; width:36px; height:36px; border-radius:7px;
+    display:grid; place-items:center;
+    background:var(--blue-500); color:var(--white); text-decoration:none;
+  }
+  .dl-btn:hover{ background:var(--blue-700); }
+  .dl-btn svg{ width:17px; height:17px; }
+
+  .repo-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:auto; }
+
+  /* ---------- ABOUT STRIP ---------- */
+  .strip{ background:var(--blue-900); color:var(--white); }
+  .strip .wrap{
+    padding:52px 28px; display:grid; grid-template-columns:repeat(3,1fr); gap:32px;
+  }
+  .strip h4{ font-family:'Sora',sans-serif; font-size:1rem; margin:0 0 8px; color:var(--white); }
+  .strip p{ margin:0; color:#c7d8f5; font-size:0.92rem; }
+
+  /* ---------- FOOTER ---------- */
+  footer{ border-top:1px solid var(--line); background:var(--blue-050); }
+  footer .wrap{
+    padding:40px 28px; display:flex; align-items:center; justify-content:space-between;
+    flex-wrap:wrap; gap:20px;
+  }
+  .foot-links{ display:flex; gap:22px; flex-wrap:wrap; list-style:none; margin:0; padding:0; }
+  .foot-links a{ text-decoration:none; color:var(--ink-soft); font-size:0.92rem; }
+  .foot-links a:hover{ color:var(--blue-700); }
+  .foot-note{ font-size:0.85rem; color:var(--ink-soft); }
+  .discord-pill{
+    display:inline-flex; align-items:center; gap:8px;
+    background:var(--blue-900); color:var(--white); padding:10px 18px;
+    border-radius:24px; text-decoration:none; font-weight:600; font-size:0.92rem;
+  }
+  .discord-pill:hover{ background:var(--blue-700); }
+  .discord-pill svg{ width:18px; height:18px; }
+
+  @media (max-width: 860px){
+    .nav-links{ gap:16px; }
+    .nav-links a:not(.btn-discord){ display:none; }
+    .hero .wrap{ grid-template-columns:1fr; padding-top:52px; padding-bottom:44px; }
+    .grid{ grid-template-columns:1fr; }
+    .strip .wrap{ grid-template-columns:1fr; }
+    footer .wrap{ flex-direction:column; align-items:flex-start; }
+  }
+  .howto{ margin-top:14px; font-size:0.9rem; color:var(--ink-soft); }
+  .howto summary{ cursor:pointer; font-weight:600; color:var(--blue-700); }
+  .howto pre{ margin:10px 0 0; padding:12px 14px; background:var(--blue-050); border-radius:8px; overflow-x:auto; font-size:0.8rem; line-height:1.7; color:var(--ink); }
+  .dc{ filter:invert(1); display:block; }
+  .btn-discord{ display:inline-flex; align-items:center; gap:8px; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <nav class="nav wrap" style="padding-left:0;padding-right:0;">
+    <a href="#top" class="brand">
+      <span class="brand-mark"><img src="img/icon.png" alt="Arch Launcher icon"></span>
+      Arch Launcher
+    </a>
+    <ul class="nav-links">
+      <li><a href="#downloads">Downloads</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="https://github.com/caobeotime-lang/Arch-client-launcher">GitHub</a></li>
+      <li><a class="btn-discord" href="https://discord.gg/PTmZxxhzXa"><img class="dc" src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/discord.svg" alt="" width="16" height="16">Discord</a></li>
+    </ul>
+  </nav>
+</header>
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <h1>A launcher that gets<br>out of your way.</h1>
+      <p class="lede">Arch Launcher supports Vanilla, Fabric, Quilt, Forge and NeoForge, installs the right Java for each version, and sets up FPS-boosting mods — so you can open it once and just play. Built for Windows 10/11 and Linux.</p>
+      <div class="hero-ctas">
+        <a href="#downloads" class="btn btn-primary">Download Arch Launcher</a>
+        <a href="https://github.com/caobeotime-lang/Arch-client-launcher" class="btn btn-ghost">View source</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="downloads">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Choose your platform</h2>
+      <p>Pick the file for your system. Both are ready to run, so there is nothing to install first. Every download is the latest release on GitHub.</p>
+    </div>
+
+    <div class="grid">
+
+      <!-- Windows -->
+      <div class="card" style="--accent:#2f6fe4;">
+        <div class="card-head">
+          <img class="icon" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/windows8/windows8-original.svg" alt="Windows" width="34" height="34">
+          <div>
+            <h3>Windows</h3>
+            <div class="sub">Windows 10 / 11</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="desc">No Python needed. Extract the zip and run <span class="mono">ArchClient.exe</span>. Windows may show a SmartScreen warning because the file is not code-signed: click “More info → Run anyway”.</p>
+          <ul class="filelist">
+            <li>
+              <div class="fname">
+                <span class="name mono">ArchClient-windows-x64.zip</span>
+                <span class="tag">Windows 10 / 11 · 64-bit</span>
+              </div>
+              <a class="dl-btn" href="https://github.com/caobeotime-lang/Arch-client-launcher/releases/latest/download/ArchClient-windows-x64.zip" aria-label="Download ArchClient-windows-x64.zip">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Linux -->
+      <div class="card" style="--accent:#1c4fa1;">
+        <div class="card-head">
+          <img class="icon" src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/linux.svg" alt="Linux" width="34" height="34">
+          <div>
+            <h3>Linux</h3>
+            <div class="sub">Debian, Ubuntu, Fedora, Arch &amp; more</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="desc">No Python needed. Pick the format your distro uses.</p>
+          <ul class="filelist">
+            <li>
+              <div class="fname">
+                <span class="name mono">ArchClient-linux-amd64.deb</span>
+                <span class="tag">Debian · Ubuntu · Mint · Pop!_OS</span>
+              </div>
+              <a class="dl-btn" href="https://github.com/caobeotime-lang/Arch-client-launcher/releases/latest/download/ArchClient-linux-amd64.deb" aria-label="Download ArchClient-linux-amd64.deb">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+              </a>
+            </li>
+            <li>
+              <div class="fname">
+                <span class="name mono">ArchClient-linux-x86_64.rpm</span>
+                <span class="tag">Fedora · openSUSE · Nobara</span>
+              </div>
+              <a class="dl-btn" href="https://github.com/caobeotime-lang/Arch-client-launcher/releases/latest/download/ArchClient-linux-x86_64.rpm" aria-label="Download ArchClient-linux-x86_64.rpm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+              </a>
+            </li>
+            <li>
+              <div class="fname">
+                <span class="name mono">ArchClient-linux-x86_64.pkg.tar.zst</span>
+                <span class="tag">Arch · CachyOS · Manjaro · EndeavourOS</span>
+              </div>
+              <a class="dl-btn" href="https://github.com/caobeotime-lang/Arch-client-launcher/releases/latest/download/ArchClient-linux-x86_64.pkg.tar.zst" aria-label="Download ArchClient-linux-x86_64.pkg.tar.zst">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+              </a>
+            </li>
+            <li>
+              <div class="fname">
+                <span class="name mono">ArchClient-linux-x86_64.AppImage</span>
+                <span class="tag">Any distro · no install needed</span>
+              </div>
+              <a class="dl-btn" href="https://github.com/caobeotime-lang/Arch-client-launcher/releases/latest/download/ArchClient-linux-x86_64.AppImage" aria-label="Download ArchClient-linux-x86_64.AppImage">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+              </a>
+            </li>
+            <li>
+              <div class="fname">
+                <span class="name mono">ArchClient-linux-x86_64.tar.gz</span>
+                <span class="tag">Any distro · extract and run</span>
+              </div>
+              <a class="dl-btn" href="https://github.com/caobeotime-lang/Arch-client-launcher/releases/latest/download/ArchClient-linux-x86_64.tar.gz" aria-label="Download ArchClient-linux-x86_64.tar.gz">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+              </a>
+            </li>
+          </ul>
+          <details class="howto">
+            <summary>How to install</summary>
+            <pre class="mono">sudo apt install ./ArchClient-linux-amd64.deb
+sudo dnf install ./ArchClient-linux-x86_64.rpm
+sudo pacman -U ArchClient-linux-x86_64.pkg.tar.zst
+chmod +x ArchClient-linux-x86_64.AppImage &amp;&amp; ./ArchClient-linux-x86_64.AppImage</pre>
+          </details>
+        </div>
+      </div>
+
+      <!-- GitHub -->
+      <div class="card" style="--accent:#0e2547;grid-column:1/-1;">
+        <div class="card-head">
+          <img class="icon" src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/github.svg" alt="GitHub" width="34" height="34">
+          <div>
+            <h3>Source code</h3>
+            <div class="sub">GitHub repository</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="desc">Read the code, run it straight from Python, grab older versions from Releases, or open an issue if something breaks.</p>
+          <div class="repo-actions">
+            <a class="btn btn-primary" href="https://github.com/caobeotime-lang/Arch-client-launcher">Open repository</a>
+            <a class="btn btn-ghost" href="https://github.com/caobeotime-lang/Arch-client-launcher/releases">All releases</a>
+            <a class="btn btn-ghost" href="https://github.com/caobeotime-lang/Arch-client-launcher/issues">Report an issue</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="strip" id="about">
+  <div class="wrap">
+    <div>
+      <h4>Zero manual setup</h4>
+      <p>Detects your OS, installs missing libraries, downloads the right Java for each Minecraft version, and sets up your .minecraft folder for you.</p>
+    </div>
+    <div>
+      <h4>Tuned for FPS</h4>
+      <p>One click writes optimized settings and installs performance mods such as Sodium, Lithium and Iris from Modrinth — matched to your version and loader.</p>
+    </div>
+    <div>
+      <h4>Free and open source</h4>
+      <p>Released under the GNU GPL v3. Read the code, modify it and share it under the same license. See the LICENSE file on GitHub.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="foot-note">Arch Launcher — a Minecraft launcher for Windows and Linux.</div>
+      <ul class="foot-links" style="margin-top:12px;">
+        <li><a href="https://github.com/caobeotime-lang/Arch-client-launcher">GitHub</a></li>
+        <li><a href="https://github.com/caobeotime-lang/Arch-client-launcher/blob/windows/LICENSE">License</a></li>
+        <li><a href="#downloads">Downloads</a></li>
+      </ul>
+    </div>
+    <a class="discord-pill" href="https://discord.gg/PTmZxxhzXa">
+      <img class="dc" src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/discord.svg" alt="" width="18" height="18">
+      Join the Discord
+    </a>
+  </div>
+</footer>
+
+</body>
+</html>
