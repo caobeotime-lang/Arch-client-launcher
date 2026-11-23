@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-build_linux.py — đóng gói Arch Client cho Linux.
+build_linux.py — package Arch Client for Linux.
 
-Đối chiếu với build_windows.py:
-  * Windows lo chuyện Defender / SmartScreen gắn cờ .exe.
-  * Linux không có vấn đề đó, nhưng có vấn đề khác: glibc. Một file build
-    trên Arch/Ubuntu mới sẽ KHÔNG chạy được trên distro có glibc cũ hơn.
-    Vì vậy nên build trên distro cũ nhất mà bạn muốn hỗ trợ
-    (Ubuntu 22.04 là mốc an toàn — xem workflow linuxbuild.yml).
+Compare with build_windows.py:
+  * Windows deals with Defender / SmartScreen flagging .exe files.
+  * Linux does not have that problem, but it has another one: glibc. A binary built
+    on a newer Arch/Ubuntu will NOT run on distros with an older glibc.
+    So build on the oldest distro you want to support
+    (Ubuntu 22.04 is the safe baseline — see the linuxbuild.yml workflow).
 
-Ba kiểu đóng gói:
-    python build_linux.py                # onedir + .tar.gz  (KHUYÊN DÙNG)
-    python build_linux.py --onefile      # 1 file chạy duy nhất
-    python build_linux.py --appimage     # .AppImage (chạy trên mọi distro)
-    python build_linux.py --deb          # .deb (Debian/Ubuntu/Mint); cũng để sẵn cây thư mục cho fpm làm .rpm / .pkg.tar.zst
+Three packaging modes:
+    python build_linux.py                # onedir + .tar.gz  (RECOMMENDED)
+    python build_linux.py --onefile      # a single runnable file
+    python build_linux.py --appimage     # .AppImage (runs on any distro)
+    python build_linux.py --deb          # .deb (Debian/Ubuntu/Mint); also stages the tree fpm uses for .rpm / .pkg.tar.zst
 
-Bản tar.gz giải nén ra là chạy được ngay, kèm sẵn install.sh để tạo
-shortcut .desktop trong menu ứng dụng.
+The tar.gz is ready to run right after extraction and ships an install.sh that creates
+the .desktop shortcut in the application menu.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ APP_NAME = "ArchClient"
 
 
 def _read_version() -> str:
-    """Lấy phiên bản từ archclient/__init__.py để tên file build luôn khớp với app."""
+    """Read the version from archclient/__init__.py so build file names always match the app."""
     try:
         for line in (HERE / "archclient" / "__init__.py").read_text(encoding="utf-8").splitlines():
             if line.startswith("APP_VERSION"):
@@ -56,7 +56,7 @@ REQUIRED_PACKAGES = ["PyQt6", "minecraft-launcher-lib>=8.0", "requests"]
 OPTIONAL_PACKAGES = ["pypresence"]
 BUILD_TOOLS = ["pyinstaller"]
 
-# Module nặng không dùng tới -> gói nhỏ hơn, khởi động nhanh hơn.
+# Heavy unused modules -> smaller bundle, faster startup.
 EXCLUDES = [
     "matplotlib", "numpy", "scipy", "pandas", "pytest", "IPython", "notebook",
     "PyQt5", "PySide2", "PySide6", "tkinter", "test", "unittest", "pydoc_data",
@@ -73,7 +73,7 @@ DESKTOP_ENTRY = f"""[Desktop Entry]
 Type=Application
 Name=Arch Client
 GenericName=Minecraft Launcher
-Comment=Launcher Minecraft đa loader (Vanilla, Fabric, Quilt, Forge, NeoForge) cho Linux
+Comment=Multi-loader Minecraft launcher (Vanilla, Fabric, Quilt, Forge, NeoForge) for Linux
 Exec={{exec}}
 Icon=arch-client
 Terminal=false
@@ -83,7 +83,7 @@ Keywords=minecraft;fabric;launcher;
 """
 
 INSTALL_SH = """#!/usr/bin/env bash
-# Cài Arch Client vào ~/.local (không cần sudo).
+# Install Arch Client into ~/.local (no sudo needed).
 set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$HOME/.local/share/arch-client"
@@ -100,7 +100,7 @@ cat > "$APPS/arch-client.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Arch Client
-Comment=Launcher Minecraft đa loader (Vanilla, Fabric, Quilt, Forge, NeoForge) cho Linux
+Comment=Multi-loader Minecraft launcher (Vanilla, Fabric, Quilt, Forge, NeoForge) for Linux
 Exec=$TARGET/ArchClient
 Icon=arch-client
 Terminal=false
@@ -112,8 +112,8 @@ chmod +x "$APPS/arch-client.desktop" "$TARGET/ArchClient" 2>/dev/null || true
 command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" || true
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" || true
 
-echo "✅ Đã cài xong. Mở bằng menu ứng dụng hoặc lệnh: arch-client"
-echo "   (nếu lệnh chưa chạy được, thêm ~/.local/bin vào PATH)"
+echo "✅ Installed. Open it from the application menu or run: arch-client"
+echo "   (if the command is not found yet, add ~/.local/bin to your PATH)"
 """
 
 
@@ -123,7 +123,7 @@ def run(cmd, check=True, **kw):
 
 
 def ensure_tools():
-    print("⏳ Kiểm tra thư viện build...")
+    print("⏳ Checking build dependencies...")
     missing = []
     for mod, pkg in [("PyQt6", "PyQt6"),
                      ("minecraft_launcher_lib", "minecraft-launcher-lib"),
@@ -160,7 +160,7 @@ def pyinstaller_args(onefile: bool) -> list:
 def make_tarball(src_dir: Path, out: Path):
     (src_dir / "install.sh").write_text(INSTALL_SH, encoding="utf-8")
     os.chmod(src_dir / "install.sh", 0o755)
-    print(f"📦 Đóng gói {out.name}...")
+    print(f"📦 Packing {out.name}...")
     with tarfile.open(out, "w:gz") as tar:
         tar.add(src_dir, arcname=APP_NAME)
     print(f"✅ {out}  ({out.stat().st_size / 1e6:.1f} MB)")
@@ -171,14 +171,14 @@ PKG_DESC = "Minecraft launcher (Vanilla, Fabric, Quilt, Forge, NeoForge) for Lin
 
 
 def stage_package_root(onedir: Path) -> Path:
-    """Dựng cây thư mục kiểu hệ thống (/opt, /usr/bin, menu, icon) dùng chung cho .deb / .rpm / gói Arch."""
+    """Stage a system-style tree (/opt, /usr/bin, menu, icon) shared by the .deb / .rpm / Arch package."""
     root = BUILD / "pkgroot"
     if root.exists():
         shutil.rmtree(root)
     opt = root / "opt" / PKG_NAME
     opt.parent.mkdir(parents=True)
     shutil.copytree(onedir, opt, symlinks=True)
-    (opt / "install.sh").unlink(missing_ok=True)      # chỉ dành cho bản tar.gz
+    (opt / "install.sh").unlink(missing_ok=True)      # only for the tar.gz build
     (root / "usr" / "bin").mkdir(parents=True)
     (root / "usr" / "bin" / PKG_NAME).symlink_to(f"/opt/{PKG_NAME}/{APP_NAME}")
     apps = root / "usr" / "share" / "applications"
@@ -237,8 +237,8 @@ def make_appimage(onedir: Path):
     (appdir / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps").mkdir(parents=True)
 
     shutil.copytree(onedir, appdir / "usr" / "bin", dirs_exist_ok=True)
-    # AppRun đặt APPDIR = gốc AppDir, mà launcher tìm img/ ngay cạnh APPDIR
-    # -> phải đặt một bản img/ ở gốc, không chỉ trong usr/bin.
+    # AppRun sets APPDIR = the AppDir root, and the launcher looks for img/ right next to APPDIR
+    # -> place a copy of img/ at the root, not only inside usr/bin.
     for d in (IMG_DIR, ASSETS_DIR):
         if d.exists():
             shutil.copytree(d, appdir / d.name, dirs_exist_ok=True)
@@ -261,7 +261,7 @@ def make_appimage(onedir: Path):
 
     tool = BUILD / "appimagetool.AppImage"
     if not tool.exists():
-        print("⏳ Tải appimagetool...")
+        print("⏳ Downloading appimagetool...")
         urllib.request.urlretrieve(APPIMAGETOOL_URL, tool)
         os.chmod(tool, 0o755)
 
@@ -270,21 +270,21 @@ def make_appimage(onedir: Path):
     try:
         run([str(tool), str(appdir), str(out)], env=env)
     except Exception:
-        # Môi trường CI/container thường không có FUSE -> chạy kiểu giải nén.
+        # CI/container environments usually lack FUSE -> run in extract-and-run mode.
         run([str(tool), "--appimage-extract-and-run", str(appdir), str(out)], env=env)
     print(f"✅ {out}")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--onefile", action="store_true", help="1 file chạy duy nhất")
-    ap.add_argument("--appimage", action="store_true", help="xuất thêm .AppImage")
-    ap.add_argument("--deb", action="store_true", help="xuất thêm .deb và cây thư mục build/pkgroot (cho fpm)")
+    ap.add_argument("--onefile", action="store_true", help="build a single runnable file")
+    ap.add_argument("--appimage", action="store_true", help="also build an .AppImage")
+    ap.add_argument("--deb", action="store_true", help="also build a .deb and stage build/pkgroot (for fpm)")
     ap.add_argument("--skip-deps", action="store_true")
     a = ap.parse_args()
 
     if not MAIN_SCRIPT.exists():
-        sys.exit(f"❌ Không thấy {MAIN_SCRIPT}")
+        sys.exit(f"❌ Missing {MAIN_SCRIPT}")
     if not a.skip_deps:
         ensure_tools()
 
@@ -296,7 +296,7 @@ def main():
     if a.onefile:
         print(f"✅ {DIST / APP_NAME}")
         if a.appimage:
-            sys.exit("ℹ --appimage cần bản onedir, bỏ --onefile rồi chạy lại.")
+            sys.exit("ℹ --appimage needs the onedir build; drop --onefile and run again.")
         return
 
     onedir = DIST / APP_NAME

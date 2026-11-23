@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Arch Client — Minecraft launcher cho Linux và Windows.
+"""Arch Client — Minecraft launcher for Linux and Windows.
 
-Chạy:  python3 arch_laucher.py   (Windows: run.bat)
-Lần đầu launcher tự cài thư viện còn thiếu (PyQt6, minecraft-launcher-lib, requests).
+Run:  python3 arch_laucher.py   (Windows: run.bat)
+On first start the launcher installs the missing libraries itself
+(PyQt6, minecraft-launcher-lib, requests).
 """
 import os
 import sys
