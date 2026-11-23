@@ -4,6 +4,14 @@ on:
   push:
     branches: [ windows ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag của GitHub Release để đăng file lên (vd v1.01). Để trống = chỉ build."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -24,8 +32,22 @@ jobs:
           Get-ChildItem dist
           if (-not (Test-Path "dist/ArchClient/ArchClient.exe")) { throw "thiếu ArchClient.exe" }
 
+      - name: Đổi tên file (tên cố định để website trỏ link ổn định)
+        shell: pwsh
+        run: Move-Item (Get-ChildItem dist/*.zip | Select-Object -First 1).FullName dist/ArchClient-windows-x64.zip
+
       - uses: actions/upload-artifact@v4
         with:
           name: ArchClient-windows
           path: dist/*.zip
           if-no-files-found: error
+
+      - name: Đăng lên GitHub Release
+        if: ${{ inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Arch Client ${{ inputs.release_tag }}
+          files: |
+            dist/ArchClient-windows-x64.zip
