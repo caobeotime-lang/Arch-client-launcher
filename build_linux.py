@@ -14,6 +14,7 @@ Ba kiểu đóng gói:
     python build_linux.py                # onedir + .tar.gz  (KHUYÊN DÙNG)
     python build_linux.py --onefile      # 1 file chạy duy nhất
     python build_linux.py --appimage     # .AppImage (chạy trên mọi distro)
+    python build_linux.py --deb          # .deb (Debian/Ubuntu/Mint); cũng để sẵn cây thư mục cho fpm làm .rpm / .pkg.tar.zst
 
 Bản tar.gz giải nén ra là chạy được ngay, kèm sẵn install.sh để tạo
 shortcut .desktop trong menu ứng dụng.
@@ -165,6 +166,69 @@ def make_tarball(src_dir: Path, out: Path):
     print(f"✅ {out}  ({out.stat().st_size / 1e6:.1f} MB)")
 
 
+PKG_NAME = "arch-client"
+PKG_DESC = "Minecraft launcher (Vanilla, Fabric, Quilt, Forge, NeoForge) for Linux"
+
+
+def stage_package_root(onedir: Path) -> Path:
+    """Dựng cây thư mục kiểu hệ thống (/opt, /usr/bin, menu, icon) dùng chung cho .deb / .rpm / gói Arch."""
+    root = BUILD / "pkgroot"
+    if root.exists():
+        shutil.rmtree(root)
+    opt = root / "opt" / PKG_NAME
+    opt.parent.mkdir(parents=True)
+    shutil.copytree(onedir, opt, symlinks=True)
+    (opt / "install.sh").unlink(missing_ok=True)      # chỉ dành cho bản tar.gz
+    (root / "usr" / "bin").mkdir(parents=True)
+    (root / "usr" / "bin" / PKG_NAME).symlink_to(f"/opt/{PKG_NAME}/{APP_NAME}")
+    apps = root / "usr" / "share" / "applications"
+    apps.mkdir(parents=True)
+    (apps / f"{PKG_NAME}.desktop").write_text(
+        DESKTOP_ENTRY.format(exec=PKG_NAME), encoding="utf-8")
+    icon = IMG_DIR / "icon.png"
+    if icon.exists():
+        icons = root / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
+        icons.mkdir(parents=True)
+        shutil.copy(icon, icons / f"{PKG_NAME}.png")
+    return root
+
+
+def make_deb(onedir: Path) -> Path:
+    root = stage_package_root(onedir)
+    debroot = BUILD / "debroot"
+    if debroot.exists():
+        shutil.rmtree(debroot)
+    shutil.copytree(root, debroot, symlinks=True)
+    ctl = debroot / "DEBIAN"
+    ctl.mkdir()
+    size_kb = sum(f.stat().st_size for f in root.rglob("*") if f.is_file()) // 1024
+    (ctl / "control").write_text(
+        f"Package: {PKG_NAME}\n"
+        f"Version: {APP_VERSION}\n"
+        "Section: games\n"
+        "Priority: optional\n"
+        "Architecture: amd64\n"
+        f"Installed-Size: {size_kb}\n"
+        "Maintainer: Arch Client <noreply@archclient.netlify.app>\n"
+        "Depends: libc6 (>= 2.35), libgl1, libegl1\n"
+        "Recommends: libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, "
+        "libxcb-image0, libxcb-render-util0, libxcb-shape0\n"
+        f"Description: {PKG_DESC}\n"
+        " Installs the right Java per Minecraft version and mods from Modrinth.\n",
+        encoding="utf-8")
+    (ctl / "postinst").write_text(
+        "#!/bin/sh\nset -e\n"
+        "command -v update-desktop-database >/dev/null && update-desktop-database -q /usr/share/applications || true\n"
+        "command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor || true\n"
+        "exit 0\n", encoding="utf-8")
+    os.chmod(ctl / "postinst", 0o755)
+    DIST.mkdir(exist_ok=True)
+    out = DIST / f"{APP_NAME}-{APP_VERSION}-amd64.deb"
+    run(["dpkg-deb", "--build", "--root-owner-group", str(debroot), str(out)])
+    print(f"✅ {out}")
+    return out
+
+
 def make_appimage(onedir: Path):
     appdir = BUILD / f"{APP_NAME}.AppDir"
     if appdir.exists():
@@ -215,6 +279,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--onefile", action="store_true", help="1 file chạy duy nhất")
     ap.add_argument("--appimage", action="store_true", help="xuất thêm .AppImage")
+    ap.add_argument("--deb", action="store_true", help="xuất thêm .deb và cây thư mục build/pkgroot (cho fpm)")
     ap.add_argument("--skip-deps", action="store_true")
     a = ap.parse_args()
 
@@ -241,6 +306,8 @@ def main():
     make_tarball(onedir, DIST / f"{APP_NAME}-{APP_VERSION}-linux-x86_64.tar.gz")
     if a.appimage:
         make_appimage(onedir)
+    if a.deb:
+        make_deb(onedir)
 
 
 if __name__ == "__main__":

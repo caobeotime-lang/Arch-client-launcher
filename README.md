@@ -85,6 +85,7 @@ Override with `ARCH_TRANSLUCENT=1 ./run.sh` or `ARCH_TRANSLUCENT=0 ./run.sh`.
 ```bash
 python3 build_linux.py             # onedir + .tar.gz
 python3 build_linux.py --appimage  # also an .AppImage
+python3 build_linux.py --deb       # also a .deb (Debian, Ubuntu, Mint)
 ```
 
 The GitHub Actions workflow `.github/workflows/linuxbuild.yml` builds on every push to the `linux` branch. It builds on Ubuntu 22.04, so the result runs on distros with glibc 2.35 or newer.

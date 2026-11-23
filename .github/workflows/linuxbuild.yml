@@ -37,8 +37,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install PyQt6 "minecraft-launcher-lib>=8.0" requests pypresence pyinstaller
 
-      - name: Build (onedir + tar.gz + AppImage)
-        run: python build_linux.py --appimage --skip-deps
+      - name: Build (onedir + tar.gz + AppImage + deb)
+        run: python build_linux.py --appimage --deb --skip-deps
+
+      - name: Build .rpm và gói Arch (.pkg.tar.zst) bằng fpm
+        continue-on-error: true      # nếu bước này lỗi thì các file còn lại vẫn được đăng
+        run: |
+          sudo apt-get install -y ruby rpm libarchive-tools zstd
+          sudo gem install --no-document fpm
+          VER=$(python -c "import re;print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',open('archclient/__init__.py').read()).group(1))")
+          fpm -s dir -t rpm    -n arch-client -v "$VER" --architecture x86_64 \
+              --description "Minecraft launcher for Linux" --url https://archclient.netlify.app \
+              -p dist/ArchClient-linux-x86_64.rpm -C build/pkgroot .
+          fpm -s dir -t pacman -n arch-client -v "$VER" --architecture x86_64 \
+              --description "Minecraft launcher for Linux" --url https://archclient.netlify.app \
+              -p dist/ArchClient-linux-x86_64.pkg.tar.zst -C build/pkgroot .
 
       - name: Kiểm tra nhanh file build
         run: |
@@ -49,6 +62,7 @@ jobs:
         run: |
           mv dist/*.tar.gz dist/ArchClient-linux-x86_64.tar.gz
           mv dist/*.AppImage dist/ArchClient-linux-x86_64.AppImage
+          mv dist/*.deb dist/ArchClient-linux-amd64.deb
 
       - uses: actions/upload-artifact@v4
         with:
@@ -56,6 +70,9 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
+            dist/*.pkg.tar.zst
           if-no-files-found: error
 
       - name: Đăng lên GitHub Release
@@ -68,3 +85,6 @@ jobs:
           files: |
             dist/ArchClient-linux-x86_64.tar.gz
             dist/ArchClient-linux-x86_64.AppImage
+            dist/ArchClient-linux-amd64.deb
+            dist/ArchClient-linux-x86_64.rpm
+            dist/ArchClient-linux-x86_64.pkg.tar.zst
