@@ -1,0 +1,3 @@
+line1: cache[m.group(1)] = True
+line2: bracket [m] end
+line3: plain
