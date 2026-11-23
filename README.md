@@ -101,3 +101,7 @@ img/                   app icon and logo (icon.ico is used for the exe and short
 ```
 
 Not affiliated with Mojang or Microsoft. Source code: see [LICENSE](LICENSE). Icons from [Lucide](https://lucide.dev), ISC license.
+
+## Contributors
+
+See the [contributors graph](https://github.com/caobeotime-lang/Arch-client-launcher/graphs/contributors). Code review and release fixes: Claude.
