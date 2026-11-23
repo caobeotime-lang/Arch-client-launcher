@@ -1099,7 +1099,19 @@ def adoptium_info(java_major: int):
         pass
     url = (f"https://api.adoptium.net/v3/binary/latest/{java_major}/ga/{os_name}/{arch}"
            f"/jdk/hotspot/normal/eclipse?project=jdk")
-    return url, f"openjdk{java_major}{ext}", None
+    return url, f"openjdk{java_major}{ext}", _adoptium_fallback_sha256(url)
+
+
+def _adoptium_fallback_sha256(url: str):
+    """Khi API tra cứu lỗi: theo redirect tới file thật rồi đọc <file>.sha256.txt cạnh nó. None nếu không lấy được."""
+    try:
+        final = requests.head(url, allow_redirects=True, timeout=20, headers={"User-Agent": UA}).url
+        r = requests.get(final + ".sha256.txt", timeout=20, headers={"User-Agent": UA})
+        r.raise_for_status()
+        digest = r.text.split()[0].strip().lower()
+        return digest if re.fullmatch(r"[0-9a-f]{64}", digest) else None
+    except Exception:
+        return None
 
 
 def download_file(url, dest: Path, progress=None, sha256=None, sha512=None,
@@ -1142,14 +1154,27 @@ def download_file(url, dest: Path, progress=None, sha256=None, sha512=None,
             pass
 
 
+def _inside(root: Path, target: Path) -> bool:
+    """target nằm trong root (so sánh theo thành phần đường dẫn, không phải tiền tố chuỗi)."""
+    return target == root or root in target.parents
+
+
 def safe_extract_tar(archive: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     root = dest.resolve()
     with tarfile.open(archive) as t:
         for m in t.getmembers():
             target = (dest / m.name).resolve()
-            if not str(target).startswith(str(root)):
+            if not _inside(root, target):
                 raise IOError(f"Tệp nén chứa đường dẫn nguy hiểm: {m.name}")
+            if m.issym():       # symlink tương đối so với thư mục chứa nó
+                link = (target.parent / m.linkname).resolve()
+            elif m.islnk():     # hardlink tính từ gốc giải nén
+                link = (dest / m.linkname).resolve()
+            else:
+                continue
+            if not _inside(root, link):
+                raise IOError(f"Tệp nén chứa liên kết trỏ ra ngoài: {m.name} -> {m.linkname}")
         try:
             t.extractall(dest, filter="data")  # Python 3.12+
         except TypeError:
@@ -1216,6 +1241,8 @@ def install_java_portable(java_major: int, log=_default_log, progress=None):
                 last[0] = pct
                 log(f"  {pct}%  ({done >> 20} / {total >> 20} MB)", "dim")
 
+    if not sha:
+        log("Không lấy được checksum SHA-256 của Java, bỏ qua bước kiểm tra.", "warn")
     download_file(url, archive, progress=prog, sha256=sha)
     log("Đang giải nén Java…", "info")
     tmp = JRE_DIR / f".extract-{int(java_major)}"
@@ -1299,6 +1326,20 @@ def _pick_file(version: dict):
     return next((f for f in files if f.get("primary")), files[0])
 
 
+def _file_matches(path: Path, sha512) -> bool:
+    """True nếu không có hash để so, hoặc SHA-512 của file khớp."""
+    if not sha512:
+        return True
+    h = hashlib.sha512()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return False
+    return h.hexdigest().lower() == str(sha512).lower()
+
+
 class ModrinthInstaller:
     """Cài mod / resource pack / shader về đúng thư mục, kèm phụ thuộc bắt buộc.
 
@@ -1356,11 +1397,11 @@ class ModrinthInstaller:
         fname = os.path.basename(pf["filename"])
         dest = folder / fname
         size = pf.get("size")
-        if dest.exists() and (not size or dest.stat().st_size == size):
+        sha512 = (pf.get("hashes") or {}).get("sha512")
+        if dest.exists() and (not size or dest.stat().st_size == size) and _file_matches(dest, sha512):
             self.log(f"  {fname}: đã có bản này", "dim")
         else:
             self.log(f"  Đang tải {fname} …", "info")
-            sha512 = (pf.get("hashes") or {}).get("sha512")
             download_file(pf["url"], dest, progress=self.progress, sha512=sha512)
             self.log(f"  Xong: {fname}", "ok")
         old = self.manifest.get(pid)
