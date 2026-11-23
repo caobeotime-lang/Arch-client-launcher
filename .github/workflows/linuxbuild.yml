@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Tag của GitHub Release để đăng file lên (vd v1.01). Để trống = chỉ build."
+        description: "GitHub Release tag to upload the files to (e.g. v1.0.0-linux). Leave empty to use tag v<version>-linux."
         required: false
         default: ""
 
@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   build:
-    # Build trên bản Ubuntu CŨ nhất còn được hỗ trợ: glibc build ra chỉ chạy
-    # được trên distro có glibc BẰNG hoặc MỚI hơn. Build ở 22.04 -> chạy được
-    # trên Ubuntu 22.04+, Debian 12, Arch, Fedora 36+, Mint 21+...
+    # Build on the oldest still-supported Ubuntu: the glibc of the produced
+    # binaries only runs on distros with the SAME or NEWER glibc. Building on
+    # 22.04 makes it run on Ubuntu 22.04+, Debian 12, Mint 21+, Fedora 36+, Arch...
     runs-on: ubuntu-22.04
 
     steps:
@@ -27,42 +27,45 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cài gói hệ thống
+      - name: Read the app version
+        id: ver
+        run: |
+          VER=$(grep -oP '^APP_VERSION\s*=\s*"\K[^"]+' archclient/__init__.py)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VER-linux" >> "$GITHUB_OUTPUT"
+          echo "Version: $VER"
+
+      - name: Install system packages
         run: |
           sudo apt-get update
           sudo apt-get install -y libfuse2 desktop-file-utils libxcb-cursor0 libgl1 libegl1 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0
 
-      - name: Cài thư viện Python
+      - name: Install Python libraries
         run: |
           python -m pip install --upgrade pip
           pip install PyQt6 "minecraft-launcher-lib>=8.0" requests pypresence pyinstaller
 
-      - name: Build (onedir + tar.gz + AppImage + deb)
+      - name: Build onedir + tar.gz + AppImage + .deb
         run: python build_linux.py --appimage --deb --skip-deps
 
-      - name: Build .rpm và gói Arch (.pkg.tar.zst) bằng fpm
-        continue-on-error: true      # nếu bước này lỗi thì các file còn lại vẫn được đăng
+      - name: Build .rpm and .pkg.tar.zst with fpm
+        continue-on-error: true      # if this step fails, the remaining files are still uploaded
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           sudo apt-get install -y ruby rpm libarchive-tools zstd
           sudo gem install --no-document fpm
-          VER=$(python -c "import re;print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',open('archclient/__init__.py').read()).group(1))")
-          fpm -s dir -t rpm    -n arch-client -v "$VER" --architecture x86_64 \
+          fpm -s dir -t rpm -n arch-client -v "$VERSION" --architecture x86_64 \
               --description "Minecraft launcher for Linux" --url https://archclient.netlify.app \
-              -p dist/ArchClient-linux-x86_64.rpm -C build/pkgroot .
-          fpm -s dir -t pacman -n arch-client -v "$VER" --architecture x86_64 \
+              -p "dist/ArchClient-$VERSION-x86_64.rpm" -C build/pkgroot .
+          fpm -s dir -t pacman -n arch-client -v "$VERSION" --architecture x86_64 \
               --description "Minecraft launcher for Linux" --url https://archclient.netlify.app \
-              -p dist/ArchClient-linux-x86_64.pkg.tar.zst -C build/pkgroot .
+              -p "dist/ArchClient-$VERSION-x86_64.pkg.tar.zst" -C build/pkgroot .
 
-      - name: Kiểm tra nhanh file build
+      - name: Check the build output
         run: |
           ls -lh dist/
           test -f "dist/ArchClient/ArchClient"
-
-      - name: Đổi tên file (tên cố định để website trỏ link ổn định)
-        run: |
-          mv dist/*.tar.gz dist/ArchClient-linux-x86_64.tar.gz
-          mv dist/*.AppImage dist/ArchClient-linux-x86_64.AppImage
-          mv dist/*.deb dist/ArchClient-linux-amd64.deb
 
       - uses: actions/upload-artifact@v4
         with:
@@ -75,16 +78,31 @@ jobs:
             dist/*.pkg.tar.zst
           if-no-files-found: error
 
-      - name: Đăng lên GitHub Release
-        if: ${{ inputs.release_tag != '' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.release_tag }}
-          target_commitish: ${{ github.sha }}
-          name: Arch Client ${{ inputs.release_tag }}
-          files: |
-            dist/ArchClient-linux-x86_64.tar.gz
-            dist/ArchClient-linux-x86_64.AppImage
-            dist/ArchClient-linux-amd64.deb
-            dist/ArchClient-linux-x86_64.rpm
-            dist/ArchClient-linux-x86_64.pkg.tar.zst
+      - name: Write the release notes (fill in SHA-256)
+        run: |
+          FILES=$(ls dist/*.tar.gz dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pkg.tar.zst 2>/dev/null || true)
+          python tools/make_release_notes.py --template .github/releases/linux.md --out dist/release_notes.md $FILES
+
+      - name: Upload files + update the Release page
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_INPUT: ${{ inputs.release_tag }}
+          TAG_DEFAULT: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          TAG="${TAG_INPUT:-$TAG_DEFAULT}"
+          REPO="$GITHUB_REPOSITORY"
+          TITLE="Arch Client Launcher v$VERSION for Linux"
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              gh release create "$TAG" -R "$REPO" --target "$GITHUB_SHA" --title "$TITLE" --notes-file dist/release_notes.md
+            else
+              echo "::warning::Release $TAG does not exist yet - only saving the artifact. Run the workflow manually with release_tag to create the release."
+              exit 0
+            fi
+          fi
+          gh release edit "$TAG" -R "$REPO" --title "$TITLE" --notes-file dist/release_notes.md
+          shopt -s nullglob
+          FILES=(dist/*.tar.gz dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pkg.tar.zst)
+          echo "Uploading ${#FILES[@]} files to release $TAG"
+          gh release upload "$TAG" -R "$REPO" --clobber "${FILES[@]}"

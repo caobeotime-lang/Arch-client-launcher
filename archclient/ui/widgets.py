@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Bộ widget tự vẽ: kính mờ, nút, sidebar, switch, segmented, toast… (QPainter, có animation)."""
+"""Custom-painted widgets: frosted glass, buttons, sidebar, switch, segmented, toast... (QPainter, animated)."""
 from __future__ import annotations
 
 import math
@@ -27,7 +27,7 @@ def _anim(parent, start, end, ms, cb, curve=QEasingCurve.Type.OutCubic) -> QVari
 
 
 class HoverAnim:
-    """Tiến trình hover 0..1 mượt cho widget bất kỳ."""
+    """Smooth 0..1 hover progress for any widget."""
 
     def __init__(self, widget, ms=150):
         self.w = widget
@@ -49,10 +49,10 @@ class HoverAnim:
 
 
 # ==========================================================================
-# KÍNH MỜ
+# FROSTED GLASS
 # ==========================================================================
 class Glass(QFrame):
-    """Panel kính: nền trắng trong suốt nhẹ + viền sáng mảnh + vệt sáng phía trên."""
+    """Glass panel: faint translucent white fill + thin bright border + a highlight streak on top."""
 
     def __init__(self, radius=16, parent=None, strength=1.0):
         super().__init__(parent)
@@ -84,7 +84,7 @@ class Label(QLabel):
 
 
 class ElidedLabel(QLabel):
-    """Một dòng, tự cắt '…' theo bề rộng."""
+    """Single line, elided to '…' based on width."""
 
     def __init__(self, text="", size=12, color=T.MUTED, parent=None):
         super().__init__(parent)
@@ -112,10 +112,10 @@ class ElidedLabel(QLabel):
 
 
 # ==========================================================================
-# NÚT
+# BUTTONS
 # ==========================================================================
 class Btn(QAbstractButton):
-    """Nút tự vẽ. kind: primary | ghost | subtle | danger."""
+    """Custom-painted button. kind: primary | ghost | subtle | danger."""
 
     def __init__(self, text="", icon=None, kind="ghost", size="md", parent=None):
         super().__init__(parent)
@@ -284,7 +284,7 @@ class Btn(QAbstractButton):
 
 
 class IconBtn(QAbstractButton):
-    """Nút icon tròn (điều khiển cửa sổ, hành động nhỏ)."""
+    """Round icon button (window controls, small actions)."""
 
     def __init__(self, icon, tip="", size=32, danger=False, parent=None):
         super().__init__(parent)
@@ -398,12 +398,12 @@ class Switch(QAbstractButton):
 
 
 class Segmented(QWidget):
-    """Thanh chọn kiểu viên thuốc, có ô sáng trượt giữa các lựa chọn."""
+    """Pill-shaped selector with a glowing thumb that slides between options."""
     changed = pyqtSignal(str)
 
     def __init__(self, options, current=None, parent=None):
         super().__init__(parent)
-        opts = list(options)                # [(key, label)] hoặc [(key, label, icon)]
+        opts = list(options)                # [(key, label)] or [(key, label, icon)]
         self._icons = {o[0]: o[2] for o in opts if len(o) > 2}
         self._opts = [(o[0], o[1]) for o in opts]
         self._cur = current if current is not None else (self._opts[0][0] if self._opts else None)
@@ -545,7 +545,7 @@ class Segmented(QWidget):
 
 
 class Select(QComboBox):
-    """Combobox: nền kính + mũi tên chevron tự vẽ."""
+    """Combobox: glass background + custom-painted chevron."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -581,7 +581,7 @@ class Select(QComboBox):
 # SIDEBAR
 # ==========================================================================
 class SideButton(QAbstractButton):
-    """Nút sidebar: icon cố định bên trái, nhãn trượt ra khi sidebar mở rộng."""
+    """Sidebar button: fixed icon on the left, label slides in when the sidebar expands."""
     H = 46
 
     def __init__(self, icon, label="", parent=None, rail_w=68):
@@ -596,7 +596,7 @@ class SideButton(QAbstractButton):
         self._h = HoverAnim(self, 160)
         self._sel = 1.0 if self.isChecked() else 0.0
         self._sa = _anim(self, 0.0, 1.0, 220, self._set_sel)
-        self.expand = 0.0      # 0..1, Rail điều khiển
+        self.expand = 0.0      # 0..1, driven by the Rail
         self.toggled.connect(self._on_toggled)
         self.setMouseTracking(True)
 
@@ -634,7 +634,7 @@ class SideButton(QAbstractButton):
         w = self.width()
         pad = 10
         r = QRectF(pad, 3, w - pad * 2, self.height() - 6)
-        # nền: sáng nhẹ khi hover, nhấn màu khi chọn
+        # background: slight glow on hover, accent tint when selected
         p.setPen(Qt.PenStyle.NoPen)
         if s > 0.01:
             p.setBrush(T.qc(T.ACCENT, 0.16 * s))
@@ -642,12 +642,12 @@ class SideButton(QAbstractButton):
         if h > 0.01:
             p.setBrush(QColor(255, 255, 255, int(16 * h * (1 - 0.6 * s))))
             p.drawRoundedRect(r, 12, 12)
-        # thanh chỉ báo bên trái
+        # indicator bar on the left
         if s > 0.01:
             p.setBrush(T.qc(T.ACCENT, s))
             bh = 20 * s
             p.drawRoundedRect(QRectF(2, (self.height() - bh) / 2, 3.5, bh), 2, 2)
-        # icon: phóng nhẹ + nhích khi hover
+        # icon: slight zoom + nudge on hover
         isz = 20
         scale = 1.0 + 0.12 * h
         col = QColor(int(140 + 91 * max(h, s)), int(148 + 84 * max(h, s)), int(163 + 70 * max(h, s)))
@@ -661,7 +661,7 @@ class SideButton(QAbstractButton):
         p.scale(scale, scale)
         p.drawPixmap(int(-isz / 2), int(-isz / 2), pm)
         p.restore()
-        # nhãn
+        # label
         if ex > 0.02 and self._label:
             f = self.font()
             f.setPixelSize(13)
@@ -680,7 +680,7 @@ class SideButton(QAbstractButton):
 
 
 def blur_pixmap(pm: QPixmap, factor: float = 0.07) -> QPixmap:
-    """Làm mờ rẻ và mượt: thu nhỏ 2 bậc rồi phóng lại bằng nội suy."""
+    """Cheap smooth blur: downscale two steps then upscale with interpolation."""
     if pm.isNull():
         return pm
     w, h = pm.width(), pm.height()
@@ -694,14 +694,14 @@ def blur_pixmap(pm: QPixmap, factor: float = 0.07) -> QPixmap:
 
 
 class Rail(QFrame):
-    """Sidebar nổi: thu gọn 68px (chỉ icon), rê chuột vào thì nở ra kèm nền kính mờ thật
-    (ảnh chụp nội dung bên dưới được làm mờ)."""
+    """Floating sidebar: collapsed to 68px (icons only), expands on hover with a real frosted-glass
+    background (a snapshot of the content underneath gets blurred)."""
     W0, W1 = 68, 214
     progress = pyqtSignal(float)
 
     def __init__(self, parent, grab_fn):
         super().__init__(parent)
-        self._grab = grab_fn          # () -> QPixmap nội dung phía sau rail
+        self._grab = grab_fn          # () -> QPixmap of the content behind the rail
         self._snap: QPixmap | None = None
         self._e = 0.0
         self.buttons: list = []
@@ -770,7 +770,7 @@ class Rail(QFrame):
         path.lineTo(w, h)
         path.closeSubpath()
         p.setClipPath(path)
-        # nền kính cơ bản
+        # base glass background
         p.fillPath(path, QColor(255, 255, 255, 8))
         if self._snap is not None and self._e > 0.01:
             p.setOpacity(min(1.0, self._e * 1.3))
@@ -784,10 +784,10 @@ class Rail(QFrame):
 
 
 # ==========================================================================
-# THANH TIẾN TRÌNH / TRẠNG THÁI / TOAST
+# PROGRESS / STATUS / TOAST
 # ==========================================================================
 class Progress(QWidget):
-    """Thanh mảnh: xác định (value/max) hoặc không xác định (chạy qua lại). max<0 -> ẩn."""
+    """Slim bar: determinate (value/max) or indeterminate (bounces back and forth). max<0 -> hidden."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -861,7 +861,7 @@ class Progress(QWidget):
 
 
 class StatusPill(QWidget):
-    """Chấm màu + chữ (xung nhịp khi bận)."""
+    """Colored dot + text (pulses while busy)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -933,7 +933,7 @@ class StatusPill(QWidget):
 
 
 class Toast(QWidget):
-    """Thông báo nổi nhỏ ở dưới giữa cửa sổ; tự ẩn."""
+    """Small floating toast at the bottom center of the window; hides itself."""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -1013,7 +1013,7 @@ class Toast(QWidget):
 
 
 # ==========================================================================
-# PHỤ TRỢ
+# HELPERS
 # ==========================================================================
 class Scroll(QScrollArea):
     def __init__(self, parent=None):
@@ -1040,7 +1040,7 @@ class Sep(QWidget):
 
 
 def fade_in(widget: QWidget, ms=200):
-    """Hiện widget bằng hiệu ứng mờ dần; gỡ effect sau khi xong để không tốn render."""
+    """Show a widget with a fade-in; removes the effect afterwards so rendering stays cheap."""
     fx = QGraphicsOpacityEffect(widget)
     fx.setOpacity(0.0)
     widget.setGraphicsEffect(fx)

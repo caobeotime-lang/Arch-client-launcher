@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Cửa sổ chính: kính mờ bo góc, sidebar nổi, thanh trên, các trang, modal, toast."""
+"""Main window: rounded frosted glass, floating sidebar, top bar, pages, modals, toast."""
 from __future__ import annotations
 
 import math
@@ -27,7 +27,7 @@ RADIUS = 18
 
 
 # ==========================================================================
-# THANH TRÊN
+# TOP BAR
 # ==========================================================================
 class TopBar(QWidget):
     def __init__(self, win):
@@ -56,7 +56,7 @@ class TopBar(QWidget):
 
 
 class Brand(QWidget):
-    """Logo + tên, đặt đầu sidebar. Tên hiện dần khi sidebar mở."""
+    """Logo + name at the top of the sidebar. The name fades in as the sidebar expands."""
 
     def __init__(self, rail_w=68):
         super().__init__()
@@ -85,7 +85,7 @@ class Brand(QWidget):
 
 
 # ==========================================================================
-# MODAL (lớp phủ mờ trong cửa sổ)
+# MODAL (dimmed overlay inside the window)
 # ==========================================================================
 class Modal(QWidget):
     def __init__(self, win):
@@ -97,7 +97,7 @@ class Modal(QWidget):
         self.hide()
 
     def open(self, title, body=None, extra: QWidget | None = None, buttons=(), focus=None):
-        """buttons: [(nhãn, kind, callback hoặc None, đóng_lại)]"""
+        """buttons: [(label, kind, callback or None, closes_modal)]"""
         self.close_card(silent=True)
         m = self.win.m
         self.setGeometry(m, m, self.win.width() - 2 * m, self.win.height() - 2 * m)
@@ -174,7 +174,7 @@ class Modal(QWidget):
 
 
 # ==========================================================================
-# CỬA SỔ CHÍNH
+# MAIN WINDOW
 # ==========================================================================
 class MainWindow(QWidget):
     def __init__(self, ctx, translucent: bool):
@@ -203,7 +203,7 @@ class MainWindow(QWidget):
         w, h = int(ctx.cfg.get("win_w", 1080)), int(ctx.cfg.get("win_h", 720))
         self.resize(max(900, w), max(620, h))
 
-        # --- nội dung
+        # --- content
         self.body = QWidget(self)
         self.body.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         outer = QVBoxLayout(self)
@@ -263,7 +263,7 @@ class MainWindow(QWidget):
             p._holder = holder
             self.stack.addWidget(holder)
 
-        # --- sidebar nổi (con trực tiếp của cửa sổ, nằm trên cùng)
+        # --- floating sidebar (direct child of the window, on top)
         self.rail = Rail(self, self.grab_under_rail)
         rl = vbox((0, 6, 0, 12), 2, self.rail)
         self.brand = Brand()
@@ -294,12 +294,12 @@ class MainWindow(QWidget):
         self.web_btn.clicked.connect(lambda: open_url(WEBSITE_URL))
         self.home.request_files.connect(self._home_to_files)
 
-        # --- lớp phủ
+        # --- overlay
         self.toast_w = Toast(self)
         self.modal = Modal(self)
         self.modal.hide()
 
-        # --- điều khiển cửa sổ + phím tắt
+        # --- window controls + shortcuts
         self.b_min.clicked.connect(self.showMinimized)
         self.b_max.clicked.connect(self.toggle_max)
         self.b_close.clicked.connect(self.close)
@@ -328,7 +328,7 @@ class MainWindow(QWidget):
         bus.accounts.connect(self.settings.rebuild_accounts)
         bus.cfg_changed.connect(self._cfg_changed)
 
-        # --- nền động
+        # --- animated background
         self._timer = QTimer(self)
         self._timer.setInterval(66)
         self._timer.timeout.connect(self._tick)
@@ -342,7 +342,7 @@ class MainWindow(QWidget):
         self.brand.expand = max(0.0, (e - 0.35) / 0.65)
         self.brand.update()
 
-    # ------------------------------------------------------------ vẽ nền
+    # ------------------------------------------------------------ background painting
     def _tick(self):
         if not self.isActiveWindow() or self.isMinimized() or self._playing:
             return
@@ -401,7 +401,7 @@ class MainWindow(QWidget):
         p.setClipPath(path)
         t = self._t
         w, h = rect.width(), rect.height()
-        # hai quầng sáng rất nhẹ trôi chậm — chỉ để nền không "chết"
+        # two very faint glows drift slowly — just so the background never looks "dead"
         for cx, cy, rad, col, al in (
             (0.18 + 0.07 * math.sin(t * 0.17), 0.12 + 0.05 * math.cos(t * 0.13), 0.55, T.ACCENT, 0.075),
             (0.86 + 0.05 * math.cos(t * 0.11), 0.92 + 0.04 * math.sin(t * 0.15), 0.50, "#7a86a8", 0.045),
@@ -425,7 +425,7 @@ class MainWindow(QWidget):
         self._paint_bg(p)
 
     def grab_inner(self) -> QPixmap:
-        """Ảnh nền + nội dung (không có sidebar) của vùng trong khung."""
+        """Background image + content (sidebar excluded) of the area inside the frame."""
         m = self.m
         dpr = self.devicePixelRatioF()
         w, h = self.width() - 2 * m, self.height() - 2 * m
@@ -446,7 +446,7 @@ class MainWindow(QWidget):
         dpr = pm.devicePixelRatio()
         return pm.copy(0, 0, int(Rail.W1 * dpr), pm.height())
 
-    # ------------------------------------------------------------ hình học / trạng thái
+    # ------------------------------------------------------------ geometry / state
     def resizeEvent(self, e):  # noqa: N802
         super().resizeEvent(e)
         self._place_overlays()
@@ -484,7 +484,7 @@ class MainWindow(QWidget):
         else:
             self.showMaximized()
 
-    # --- kéo giãn cửa sổ bằng vùng đệm bóng
+    # --- window resizing via the shadow padding strip
     def _edges(self, pos):
         if self.isMaximized() or self.isFullScreen():
             return Qt.Edge(0)
@@ -519,7 +519,7 @@ class MainWindow(QWidget):
         if ed and e.button() == Qt.MouseButton.LeftButton and self.windowHandle() is not None:
             self.windowHandle().startSystemResize(ed)
 
-    # ------------------------------------------------------------ điều hướng
+    # ------------------------------------------------------------ navigation
     def go(self, key, animate=True):
         page = self.pages[key]
         self.stack.setCurrentWidget(page._holder)
@@ -541,7 +541,7 @@ class MainWindow(QWidget):
         self.files.select_category(cat)
         self.go("files")
 
-    # ------------------------------------------------------------ dịch
+    # ------------------------------------------------------------ translation
     def retranslate(self):
         t = self.ctx.tr
         for key, _i, _l in NAV + BOTTOM:
@@ -581,7 +581,7 @@ class MainWindow(QWidget):
             self.ctx.bus.invoke.emit(lambda: commit(lang))
         threading.Thread(target=work, daemon=True).start()
 
-    # ------------------------------------------------------------ phản hồi từ controller
+    # ------------------------------------------------------------ controller feedback
     def _on_status(self, kind, text):
         self._status_kind, self._status_text = kind, text
         key = {"ready": "st_ready", "busy": "st_busy", "error": "st_error", "playing": "st_playing"}.get(kind, "st_ready")
@@ -626,7 +626,7 @@ class MainWindow(QWidget):
     def toast(self, text, kind="info"):
         self.toast_w.show_message(text, kind)
 
-    # ------------------------------------------------------------ hành động chung
+    # ------------------------------------------------------------ shared actions
     def on_version(self, ver):
         ctl = self.ctx.ctl
         if not ver or ver == ctl.mc_version:
@@ -658,7 +658,7 @@ class MainWindow(QWidget):
             ok, rel = res
             if lid != ctl.loader:
                 return
-            if ok is False and rel:        # loader không có bản MC đang chọn -> nhảy sang bản mới nhất nó hỗ trợ
+            if ok is False and rel:        # loader lacks the selected MC version -> jump to the newest one it supports
                 ctl.mc_version = rel[0]
                 self.ctx.cfg["mc_version"] = rel[0]
                 ctl.save()
@@ -669,7 +669,7 @@ class MainWindow(QWidget):
         self.context_changed()
 
     def reload_versions(self):
-        """Nạp lại danh sách phiên bản theo loại (release/snapshot/all) và loader (nền, có cache)."""
+        """Reload the version list by kind (release/snapshot/all) and loader (background, cached)."""
         ctl = self.ctx.ctl
         kind = self.ctx.cfg.get("ver_kind", "release")
         if kind not in core.VERSION_KINDS:
@@ -688,7 +688,7 @@ class MainWindow(QWidget):
         ctl.call_async(lambda: core.list_mc_versions(kind, lid, cur), done)
 
     def context_changed(self):
-        """Đổi phiên bản / loader / thư mục: làm mới mọi trang phụ thuộc vào chúng."""
+        """Version / loader / folder changed: refresh every page that depends on them."""
         ctl = self.ctx.ctl
         self.home.retranslate()
         self.optimize.rebuild_mods()
@@ -705,7 +705,7 @@ class MainWindow(QWidget):
         self.ctx.cfg["mc_dir"] = str(path)
         ctl.save()
         if info["created"]:
-            ctl.log(f"Đã tạo thư mục con còn thiếu: {', '.join(info['created'])}", "dim")
+            ctl.log(f"Created missing subfolders: {', '.join(info['created'])}", "dim")
         self.refresh_all()
 
     def refresh_all(self):
@@ -760,7 +760,7 @@ class MainWindow(QWidget):
     def _login_out(self):
         self.toast(self.ctx.tr("logout_ok"), "info")
 
-    # ------------------------------------------------------------ đóng
+    # ------------------------------------------------------------ close
     def closeEvent(self, e):  # noqa: N802
         try:
             if not (self.isMaximized() or self.isFullScreen()):

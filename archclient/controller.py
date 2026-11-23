@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Controller: chạy các tác vụ nền (Java, Fabric, game, Modrinth…) và báo về GUI qua Bus.
+"""Controller: runs background tasks (Java, Fabric, game, Modrinth...) and reports to the GUI via Bus.
 
-Mọi tác vụ chạy ở thread riêng; GUI chỉ nhận signal nên không bao giờ bị treo.
+Every task runs in its own thread; the GUI only receives signals so it never freezes.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ except Exception:  # pragma: no cover
     Presence = None
 
 DISCORD_CLIENT_ID = "1545310964331843584"
-_INSTALL_LOCK = threading.Lock()  # chỉ một trình cài mod ghi manifest tại một thời điểm
+_INSTALL_LOCK = threading.Lock()  # only one mod installer writes the manifest at a time
 
 
 def _is_network_error(exc: BaseException) -> bool:
@@ -41,21 +41,21 @@ def _is_network_error(exc: BaseException) -> bool:
 
 
 class Bus(QObject):
-    log = pyqtSignal(str, str)         # nội dung, mức (info/ok/warn/error/dim/game)
+    log = pyqtSignal(str, str)         # message, level (info/ok/warn/error/dim/game)
     status = pyqtSignal(str, str)      # kind: ready|busy|error|playing, text
     java = pyqtSignal(str, str)        # text, kind: idle|busy|ok|warn|error
-    progress = pyqtSignal(int, int)    # value, max (max<0 ẩn, 0 = không xác định)
+    progress = pyqtSignal(int, int)    # value, max (max<0 hidden, 0 = indeterminate)
     refresh = pyqtSignal()
     toast = pyqtSignal(str, str)       # text, kind: info|ok|warn|error
     sound = pyqtSignal(str)
     game = pyqtSignal(bool)
-    login_prompt = pyqtSignal(str, bool)   # (url, tự động bắt kết quả?)
+    login_prompt = pyqtSignal(str, bool)   # (url, catch the result automatically?)
     login_done = pyqtSignal(str)
     login_fail = pyqtSignal(str)
     login_out = pyqtSignal()
-    accounts = pyqtSignal()            # danh sách / tài khoản đang chọn thay đổi
+    accounts = pyqtSignal()            # account list / active account changed
     cfg_changed = pyqtSignal()
-    invoke = pyqtSignal(object)        # chạy 1 callable trên luồng GUI
+    invoke = pyqtSignal(object)        # run a callable on the GUI thread
 
 
 class Controller:
@@ -66,10 +66,10 @@ class Controller:
         self.mc_dir = Path(cfg["mc_dir"])
         self.mc_version = cfg.get("mc_version") or core.DEFAULT_MC_VERSION
         self.loader = cfg.get("loader") if cfg.get("loader") in core.LOADER_IDS else "fabric"
-        self._tokens: dict = {}            # id tài khoản -> {"access", "uuid", "t"} (chỉ giữ trong RAM)
-        self._games: dict = {}             # số thứ tự -> {"proc", "name", "log"}; nhiều game chạy song song
+        self._tokens: dict = {}            # account id -> {"access", "uuid", "t"} (kept in RAM only)
+        self._games: dict = {}             # sequence number -> {"proc", "name", "log"}; games run in parallel
         self._game_seq = 0
-        self._cleanups: list = []          # việc dọn sau khi game cuối cùng tắt (Windows: trả power plan)
+        self._cleanups: list = []          # cleanup after the last game exits (Windows: restore power plan)
         self._running: set = set()
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="arch-io")
@@ -81,7 +81,7 @@ class Controller:
         self._last_status_line = ""
         self.bus.invoke.connect(self._run_invoked)
 
-    # ------------------------------------------------------------ tiện ích
+    # ------------------------------------------------------------ utilities
     @staticmethod
     def _run_invoked(fn):
         try:
@@ -102,15 +102,15 @@ class Controller:
         core.save_config(self.cfg)
 
     def call_async(self, fn, on_ok=None, on_err=None):
-        """Chạy fn ở pool nền; on_ok/on_err chạy lại trên luồng GUI."""
+        """Run fn on the worker pool; on_ok/on_err run again on the GUI thread."""
         fut = self._pool.submit(fn)
 
         def done(f):
             try:
                 res = f.result()
             except Exception as exc:
-                if not _is_network_error(exc):      # mất mạng là chuyện thường, không ghi file báo lỗi
-                    write_error_log("Tác vụ nền", exc=exc)
+                if not _is_network_error(exc):      # losing the network is normal, no error report file
+                    write_error_log("Background task", exc=exc)
                 if on_err:
                     self.bus.invoke.emit(lambda err=exc: on_err(err))
                 return
@@ -120,7 +120,7 @@ class Controller:
         fut.add_done_callback(done)
 
     def run_exclusive(self, name, fn, *args) -> bool:
-        """Chạy fn ở thread riêng; không cho chạy trùng cùng tên tác vụ."""
+        """Run fn in its own thread; the same task name cannot run twice."""
         with self._lock:
             if name in self._running:
                 self.bus.toast.emit(self.t("busy_wait"), "warn")
@@ -131,10 +131,10 @@ class Controller:
             try:
                 fn(*args)
             except Exception as e:
-                self.log(f"Lỗi: {e}", "error")
-                p = None if _is_network_error(e) else write_error_log(f"Tác vụ {name}", exc=e)
+                self.log(f"Error: {e}", "error")
+                p = None if _is_network_error(e) else write_error_log(f"Task {name}", exc=e)
                 if p:
-                    self.log(f"Chi tiết: {p}", "dim")
+                    self.log(f"Details: {p}", "dim")
                 self.status("error")
                 self.bus.sound.emit("error")
             finally:
@@ -169,8 +169,8 @@ class Controller:
         self.run_exclusive("java", self._check_java, True)
 
     def check_java_quiet(self):
-        """Đổi phiên bản: chỉ kiểm tra, không tự tải Java (sẽ tự cài khi cài loader / bấm Chơi)."""
-        if self.is_running("java"):       # đang kiểm tra / cài rồi: đừng báo "bận" mỗi lần đổi phiên bản
+        """Version change: check only, do not download Java (it installs itself when installing a loader / pressing Play)."""
+        if self.is_running("java"):       # already checking / installing: do not report "busy" on every version change
             return
         self.run_exclusive("java", self._check_java, False)
 
@@ -191,16 +191,16 @@ class Controller:
             return
         found = core.find_any_java(need)
         if found:
-            self.log(f"Dùng Java {found[1]}: {found[0]}", "ok")
+            self.log(f"Using Java {found[1]}: {found[0]}", "ok")
             self._java_ok_state(*found)
             return
         if not auto:
             self.bus.java.emit(self.t("java_lazy", need=need), "warn")
             return
         if exe and ver:
-            self.log(f"Java hiện tại là bản {ver}, Minecraft {self.mc_version} cần Java {need} — tự động cài bản phù hợp.", "warn")
+            self.log(f"Current Java is {ver}, Minecraft {self.mc_version} needs Java {need} — installing the right version automatically.", "warn")
         else:
-            self.log(f"Chưa tìm thấy Java — tự động cài OpenJDK {need}.", "warn")
+            self.log(f"No Java found — installing OpenJDK {need} automatically.", "warn")
         self._install_java(need)
 
     def install_java(self):
@@ -208,7 +208,7 @@ class Controller:
 
     def _install_java(self, target=None):
         need = self.java_required()
-        if target is None:                     # bấm nút "cài Java": theo phiên bản đang chọn
+        if target is None:                     # "install Java" button pressed: follow the selected version
             try:
                 target = int(self.cfg.get("java_major") or need)
             except Exception:
@@ -219,35 +219,35 @@ class Controller:
         self.status("busy")
         self.bus.java.emit(self.t("java_installing"), "busy")
         self.bus.progress.emit(0, 0)
-        self.log(f"Bắt đầu cài OpenJDK {target}…", "info")
+        self.log(f"Installing OpenJDK {target}…", "info")
         exe = None
         try:
             exe = core.install_java_portable(
                 target, self.log,
                 progress=lambda d, t: self.bus.progress.emit(d // 1024, t // 1024) if t else None)
         except Exception as e:
-            self.log(f"Tải bản portable thất bại: {e}", "warn")
+            self.log(f"Portable download failed: {e}", "warn")
             if detect_os().get("pkg_manager") and not detect_os().get("immutable"):
-                self.log(f"Thử cài qua trình quản lý gói ({detect_os()['pkg_manager']})…", "info")
+                self.log(f"Trying the package manager ({detect_os()['pkg_manager']})…", "info")
                 if core.install_java_via_pkg_manager(target, self.log):
                     found = core.find_any_java(need)
                     if found:
                         exe = found[0]
         if not exe:
-            self.log("Không cài được Java tự động. Hãy cài OpenJDK thủ công rồi chọn file java trong Cài đặt.", "error")
+            self.log("Could not install Java automatically. Install OpenJDK manually, then pick the java binary in Settings.", "error")
             self.bus.java.emit(self.t("java_fail"), "error")
             self.status("error")
             self.bus.sound.emit("error")
             return
         ver = core.get_java_version(exe) or target
-        self.log(f"Đã cài Java {ver}: {exe}", "ok")
+        self.log(f"Installed Java {ver}: {exe}", "ok")
         self._java_ok_state(exe, ver)
         self.status("ready")
         self.bus.sound.emit("success")
         self.bus.toast.emit(self.t("java_ok", v=ver), "ok")
 
     def _ensure_java(self, need: int):
-        """Trả về (đường dẫn java, major) thoả `need`; tự tìm / tải nếu thiếu. None nếu thất bại."""
+        """Return (java path, major) satisfying `need`; finds / downloads it when missing. None on failure."""
         exe = self.current_java()
         ver = core.get_java_version(exe) if exe else None
         if exe and ver and core.java_acceptable(ver, need):
@@ -256,7 +256,7 @@ class Controller:
         if found:
             self._java_ok_state(*found)
             return found
-        self.log(f"Cần Java {need} — đang tự cài…", "info")
+        self.log(f"Java {need} needed — installing…", "info")
         self._install_java(need)
         found = core.find_any_java(need)
         if found:
@@ -266,37 +266,37 @@ class Controller:
     # ------------------------------------------------------------ Loader (Vanilla / Fabric / Quilt / Forge / NeoForge)
     def install_loader(self):
         if core.mll is None:
-            self.log("Thiếu minecraft-launcher-lib", "error")
+            self.log("minecraft-launcher-lib is missing", "error")
             return
         if not hasattr(core.mll, "mod_loader"):
-            self.log("minecraft-launcher-lib quá cũ (cần >= 8.0): pip install -U minecraft-launcher-lib", "error")
+            self.log("minecraft-launcher-lib is too old (needs >= 8.0): pip install -U minecraft-launcher-lib", "error")
             self.bus.toast.emit(self.t("mll_old"), "error")
             return
         self.run_exclusive("loader", self._install_loader)
 
-    install_fabric = install_loader      # tên cũ
+    install_fabric = install_loader      # legacy name
 
     def _install_loader(self):
-        """Cài vanilla / loader cho (self.loader, self.mc_version). Trả về id profile hoặc None."""
+        """Install vanilla / a loader for (self.loader, self.mc_version). Returns the profile id or None."""
         loader, mc = self.loader, self.mc_version
         label = core.loader_label(loader)
         self.status("busy")
         self.mc_dir.mkdir(parents=True, exist_ok=True)
         if core.loader_supports(loader, mc) is False:
-            self.log(f"{label} chưa hỗ trợ Minecraft {mc}.", "error")
+            self.log(f"{label} does not support Minecraft {mc}.", "error")
             self.bus.toast.emit(self.t("loader_unsupported", loader=label, ver=mc), "error")
             self.status("error")
             self.bus.sound.emit("error")
             return None
         found = self._ensure_java(self.java_required())
         if not found:
-            self.log("Không tìm thấy Java phù hợp. Vào Cài đặt > Kiểm tra / cài Java trước.", "error")
+            self.log("No suitable Java found. Use Settings > Check / install Java first.", "error")
             self.status("error")
             self.bus.toast.emit(self.t("need_java"), "error")
             self.bus.sound.emit("error")
             return None
         java = found[0]
-        self.log(f"Đang cài {label} cho Minecraft {mc}…", "info")
+        self.log(f"Installing {label} for Minecraft {mc}…", "info")
         state = {"max": 0}
 
         def set_status(text):
@@ -324,14 +324,14 @@ class Controller:
             n = type(e).__name__
             msg = (self.t("loader_unsupported", loader=label, ver=mc) if n == "UnsupportedVersion"
                    else self.t("loader_failed", loader=label))
-            self.log(f"Cài {label} thất bại ({n}): {e}", "error")
+            self.log(f"{label} install failed ({n}): {e}", "error")
             self.bus.toast.emit(msg, "error")
             self.status("error")
             self.bus.sound.emit("error")
             if n not in ("UnsupportedVersion", "VersionNotFound"):
-                write_error_log(f"Cài {label} {mc}", exc=e)
+                write_error_log(f"Install {label} {mc}", exc=e)
             return None
-        self.log(f"Cài {label} thành công.", "ok")
+        self.log(f"{label} installed successfully.", "ok")
         self.status("ready")
         self.bus.sound.emit("success")
         self.bus.toast.emit(self.t("loader_ok", loader=label), "ok")
@@ -339,12 +339,12 @@ class Controller:
         return vid
 
     # ------------------------------------------------------------ Microsoft
-    REDIRECT = "https://login.microsoftonline.com/consumers/oauth2/nativeclient"   # chế độ dán URL thủ công
+    REDIRECT = "https://login.microsoftonline.com/consumers/oauth2/nativeclient"   # manual paste-URL mode
     LOGIN_TIMEOUT = 240
 
     def login_microsoft(self, client_id: str, manual: bool = False):
-        """Mặc định: mở trình duyệt, đăng nhập xong tự quay lại launcher (cổng localhost tạm thời).
-        manual=True: dùng địa chỉ nativeclient, người dùng dán URL cuối cùng vào launcher."""
+        """Default: open the browser, return to the launcher automatically after sign-in (temporary localhost port).
+        manual=True: use the nativeclient address, the user pastes the final URL into the launcher."""
         if core.mll is None:
             return
         if not client_id.strip():
@@ -359,14 +359,14 @@ class Controller:
         url, state, verifier = core.mll.microsoft_account.get_secure_login_data(client_id, redirect)
         self._ms = (client_id, state, verifier, redirect)
         self._cb_server = server
-        self.log("Đã mở trình duyệt để đăng nhập Microsoft.", "info")
+        self.log("Opened the browser for Microsoft sign-in.", "info")
         self.bus.login_prompt.emit(url, server is not None)
         if server:
             threading.Thread(target=self._wait_callback, args=(server,), name="arch-login-cb",
                              daemon=True).start()
 
     def _start_callback_server(self):
-        """HTTP server tạm trên 127.0.0.1 (cổng ngẫu nhiên) để bắt địa chỉ chuyển hướng của Microsoft."""
+        """Temporary HTTP server on 127.0.0.1 (random port) that catches Microsoft's redirect address."""
         box = {}
         done_html = (
             "<!doctype html><meta charset=utf-8><title>Arch Client</title>"
@@ -376,7 +376,7 @@ class Controller:
             "<p style='color:#8c94a3;margin:0'>{body}</p></div></body>")
 
         class Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *a):   # im lặng
+            def log_message(self, *a):   # stay quiet
                 pass
 
             def do_GET(self):  # noqa: N802
@@ -426,7 +426,7 @@ class Controller:
                 self.bus.login_fail.emit(self.t("login_timeout"))
 
     def login_cancel(self):
-        srv, self._cb_server = self._cb_server, None   # luồng chờ thấy _cb_server đổi -> tự thoát
+        srv, self._cb_server = self._cb_server, None   # the waiting thread sees the change -> exits by itself
         if srv is not None:
             self._ms = None
 
@@ -446,7 +446,7 @@ class Controller:
             raise
         self._ms = None
         self._apply_token(token, client_id)
-        self.log(f"Đăng nhập thành công: {token['name']}", "ok")
+        self.log(f"Signed in: {token['name']}", "ok")
         self.bus.login_done.emit(token["name"])
         self.bus.sound.emit("success")
 
@@ -458,8 +458,8 @@ class Controller:
             return self.t("login_app_denied")
         return self.t("login_failed", err=str(e)[:160])
 
-    # ------------------------------------------------------------ Tài khoản
-    TOKEN_MAX_AGE = 6 * 3600           # token Minecraft sống ~24h: làm mới nếu đã cũ hơn 6h
+    # ------------------------------------------------------------ Accounts
+    TOKEN_MAX_AGE = 6 * 3600           # Minecraft tokens live ~24h: refresh when older than 6h
 
     def accounts(self) -> list:
         return self.cfg.setdefault("accounts", [])
@@ -489,7 +489,7 @@ class Controller:
         self.bus.accounts.emit()
 
     def add_offline_account(self, name: str):
-        """Thêm (hoặc chọn lại nếu đã có) tài khoản offline. Trả về account."""
+        """Add (or re-select if it already exists) an offline account. Returns the account."""
         clean = re.sub(r"[^A-Za-z0-9_]", "", name or "")[:16]
         if len(clean) < 3:
             self.bus.toast.emit(self.t("acc_bad_name"), "warn")
@@ -517,10 +517,10 @@ class Controller:
         self.bus.accounts.emit()
         if acc["type"] == "microsoft":
             self.bus.login_out.emit()
-        self.log(f"Đã xoá tài khoản {acc['name']}.", "info")
+        self.log(f"Removed account {acc['name']}.", "info")
 
     def _store_token(self, token: dict, client_id: str, activate: bool) -> dict:
-        """Ghi token Microsoft vào đúng tài khoản (tìm theo uuid, chưa có thì thêm)."""
+        """Store the Microsoft token under the right account (matched by uuid, added when new)."""
         accs = self.accounts()
         acc = next((a for a in accs if a["type"] == "microsoft" and a.get("uuid") == token["id"]), None)
         if acc is None:
@@ -541,7 +541,7 @@ class Controller:
         self._store_token(token, client_id, activate=True)
 
     def restore_login(self):
-        """Mở app: lấy lại phiên của MỌI tài khoản Microsoft bằng refresh token (nền, im lặng)."""
+        """App start: refresh the session of EVERY Microsoft account via refresh token (background, quiet)."""
         if core.mll is None:
             return
         todo = [a for a in self.accounts() if a["type"] == "microsoft" and a.get("refresh") and a.get("client")
@@ -559,19 +559,19 @@ class Controller:
                         acc["expired"] = True
                         self.save()
                         self.bus.accounts.emit()
-                        self.log(f"Phiên Microsoft của {acc['name']} đã hết hạn — hãy đăng nhập lại.", "warn")
+                        self.log(f"{acc['name']}'s Microsoft session expired — please sign in again.", "warn")
                     else:
-                        self.log(f"Chưa khôi phục được phiên của {acc['name']} (bỏ qua): {e}", "dim")
+                        self.log(f"Could not restore {acc['name']}'s session (skipped): {e}", "dim")
                     continue
                 self._store_token(token, acc["client"], activate=False)
-                self.log(f"Đã đăng nhập: {token['name']}", "ok")
+                self.log(f"Signed in: {token['name']}", "ok")
             act = self.get_account()
             if act and act["type"] == "microsoft" and not act.get("expired"):
                 self.bus.login_done.emit(act["name"])
         self._pool.submit(job)
 
     def _token_for(self, acc: dict) -> dict:
-        """Token còn hạn cho tài khoản Microsoft; làm mới nếu cũ. Ném RuntimeError nếu phải đăng nhập lại."""
+        """Return a valid token for the Microsoft account; refresh when stale. Raises RuntimeError when re-sign-in is needed."""
         cached = self._tokens.get(acc["id"])
         if cached and time.time() - cached["t"] < self.TOKEN_MAX_AGE:
             return cached
@@ -586,14 +586,14 @@ class Controller:
                     self.save()
                     self.bus.accounts.emit()
                 elif cached:
-                    self.log(f"Không làm mới được token, dùng token cũ: {e}", "warn")
+                    self.log(f"Could not refresh the token, using the old one: {e}", "warn")
                     return cached
                 else:
                     raise RuntimeError(self.t("acc_refresh_fail", name=acc["name"], err=str(e)[:120]))
         raise RuntimeError(self.t("acc_expired", name=acc["name"]))
 
     def logout(self):
-        """Gỡ tài khoản Microsoft đang chọn (nếu tài khoản đang chọn không phải Microsoft thì gỡ cái đầu tiên)."""
+        """Remove the selected Microsoft account (falls back to the first account when the selected one is not Microsoft)."""
         self.login_cancel()
         acc = self.get_account()
         if not acc or acc["type"] != "microsoft":
@@ -616,9 +616,9 @@ class Controller:
         return procs[-1] if procs else None
 
     def launch(self, account_id=None):
-        """Chạy game bằng tài khoản đang chọn (hoặc account_id). Có thể gọi nhiều lần để mở nhiều game cùng lúc."""
+        """Run the game with the selected account (or account_id). Call repeatedly to run several games at once."""
         if core.mll is None:
-            self.log("Thiếu minecraft-launcher-lib", "error")
+            self.log("minecraft-launcher-lib is missing", "error")
             return
         acc = self.get_account(account_id if isinstance(account_id, str) else None)
         if acc is None:
@@ -646,7 +646,7 @@ class Controller:
         label = core.loader_label(self.loader)
         version_id = core.find_installed_version(self.mc_dir, self.loader, self.mc_version)
         if not version_id:
-            self.log(f"Chưa cài {label} {self.mc_version} — tự cài trước khi chơi.", "info")
+            self.log(f"{label} {self.mc_version} not installed — installing before launch.", "info")
             version_id = self._install_loader()
             if not version_id:
                 return
@@ -654,7 +654,7 @@ class Controller:
         need = core.java_major_from_json(self.mc_dir, version_id) or self.java_required()
         found = self._ensure_java(need)
         if not found:
-            self.log(f"Không tìm thấy Java {need} phù hợp. Vào Cài đặt > Kiểm tra / cài Java.", "error")
+            self.log(f"No suitable Java {need} found. Use Settings > Check / install Java.", "error")
             self.bus.toast.emit(self.t("need_java"), "error")
             self.bus.java.emit(self.t("java_old", v="?", need=need), "error")
             self.status("error")
@@ -662,17 +662,17 @@ class Controller:
             return
         java, jver = found
         gdir = self.ensure_game_dir()
-        self.log(f"Chuẩn bị chạy: {version_id} ({acc['name']})", "info")
+        self.log(f"Preparing launch: {version_id} ({acc['name']})", "info")
 
         ram = int(self.cfg.get("ram_mb", 3072))
         safe = core.clamp_ram_mb(ram)
-        if self.game_count():                       # đang có game khác: tránh cạn RAM máy
+        if self.game_count():                       # other games running: avoid exhausting system RAM
             avail = core.detect_available_ram_mb()
             if avail and safe + 512 > avail:
                 self.log(self.t("low_ram_multi", need=safe, avail=avail), "warn")
                 self.bus.toast.emit(self.t("low_ram_multi", need=safe, avail=avail), "warn")
         if safe != ram:
-            self.log(f"RAM {ram} MB vượt 75% RAM máy — hạ xuống {safe} MB để tránh bị OOM-killer giết game.", "warn")
+            self.log(f"RAM {ram} MB exceeds 75% of system RAM — lowering to {safe} MB so the OOM-killer never kills the game.", "warn")
         name = acc["name"] if acc["type"] == "microsoft" else core.valid_username(acc["name"])
         options = {
             "username": name,
@@ -702,8 +702,8 @@ class Controller:
         self._prune_game_logs()
         safe_name = re.sub(r"\W", "_", name)
         log_path = GAME_LOG_DIR / f"game-{safe_name}-{time.strftime('%H%M%S')}.log"
-        # Ghi stdout của game ra FILE rồi đọc đuôi file: đóng launcher không làm game
-        # bị SIGPIPE / mất log như khi nối thẳng qua pipe.
+        # Write the game's stdout to a FILE and read its tail: closing the launcher does not kill the
+        # game or break the log with SIGPIPE, unlike piping stdout directly.
         try:
             with open(log_path, "wb") as logf:
                 proc = subprocess.Popen(command, cwd=str(gdir), stdin=subprocess.DEVNULL,
@@ -719,11 +719,11 @@ class Controller:
             if cleanup:
                 self._cleanups.append(cleanup)
         n = self.game_count()
-        self.log(f"Đang khởi chạy Minecraft… ({name})", "ok")
+        self.log(f"Launching Minecraft… ({name})", "ok")
         self.status("playing", self.t("st_playing_n", n=n) if n > 1 else None)
         self.bus.game.emit(True)
         self.bus.sound.emit("launch")
-        self.set_discord(f"Đang chơi Minecraft {self.mc_version}", f"{label} · Arch Client")
+        self.set_discord(f"Playing Minecraft {self.mc_version}", f"{label} · Arch Client")
         threading.Thread(target=self._tail_game, args=(gid,), name="arch-tail", daemon=True).start()
 
     @staticmethod
@@ -755,30 +755,30 @@ class Controller:
                         emit(line.rstrip())
                         continue
                     if proc.poll() is not None:
-                        for line in f.read().splitlines():  # nốt phần còn lại
+                        for line in f.read().splitlines():  # the rest
                             emit(line)
                         break
                     time.sleep(0.15)
         except Exception as e:
-            write_error_log("Đọc log game", exc=e)
+            write_error_log("Reading game log", exc=e)
         code = proc.wait()
         with self._lock:
             self._games.pop(gid, None)
             last = not any(x["proc"].poll() is None for x in self._games.values())
             cleanups, self._cleanups = (self._cleanups, []) if last else ([], self._cleanups)
-        for cleanup in cleanups:             # Windows: trả power plan cũ khi game CUỐI CÙNG tắt
+        for cleanup in cleanups:             # Windows: restore the old power plan when the LAST game exits
             try:
                 cleanup()
             except Exception as e:
-                write_error_log("Khôi phục power plan", exc=e)
+                write_error_log("Restoring power plan", exc=e)
         left = self.game_count()
         self.bus.game.emit(left > 0)
         if code != 0:
             self.log(f"[{name}] " + self.t("game_crash", code=code), "error")
-            p = write_error_log(f"Minecraft crash (mã {code}, {name})",
-                                extra_text="--- 200 dòng cuối của game log ---\n" + "\n".join(tail))
+            p = write_error_log(f"Minecraft crash (code {code}, {name})",
+                                extra_text="--- last 200 lines of the game log ---\n" + "\n".join(tail))
             if p:
-                self.log(f"Chi tiết crash: {p}", "dim")
+                self.log(f"Crash details: {p}", "dim")
             self.status("error")
             self.bus.sound.emit("error")
         else:
@@ -787,21 +787,21 @@ class Controller:
             self.status("playing", self.t("st_playing_n", n=left) if left > 1 else None)
         elif code == 0:
             self.status("ready")
-            self.set_discord("Đang xem launcher", "Arch Client")
+            self.set_discord("Browsing the launcher", "Arch Client")
         else:
-            self.set_discord("Đang xem launcher", "Arch Client")
+            self.set_discord("Browsing the launcher", "Arch Client")
 
-    # ------------------------------------------------------------ Tối ưu
+    # ------------------------------------------------------------ Optimize
     def apply_optimization(self, slugs: list):
         self.run_exclusive("optimize", self._apply_optimization, list(slugs))
 
     def _apply_optimization(self, slugs):
         self.status("busy", self.t("opt_running"))
-        self.log("Bắt đầu tối ưu…", "info")
+        self.log("Starting optimization…", "info")
         gdir = self.ensure_game_dir()
         opt = core.write_optimized_options(gdir)
-        self.log(f"Đã cập nhật {opt}", "ok")
-        order = sorted(slugs, key=lambda s: 0 if s == "iris" else 1)  # Iris ghim bản Sodium, cài trước
+        self.log(f"Updated {opt}", "ok")
+        order = sorted(slugs, key=lambda s: 0 if s == "iris" else 1)  # Iris pins Sodium, install it first
         total = len(order)
         okc = 0
         for i, slug in enumerate(order):
@@ -812,37 +812,37 @@ class Controller:
                     if inst.install(slug, "mod"):
                         okc += 1
             except Exception as e:
-                self.log(f"  Lỗi tải {slug}: {e}", "error")
-                write_error_log(f"Tối ưu - tải {slug}", exc=e)
+                self.log(f"  Download failed {slug}: {e}", "error")
+                write_error_log(f"Optimize - download {slug}", exc=e)
         self.bus.progress.emit(total, max(total, 1))
-        self.log(f"Hoàn tất tối ưu: {okc}/{total} mod. Khởi động lại game để áp dụng.", "ok")
+        self.log(f"Optimization complete: {okc}/{total} mods. Restart the game to apply.", "ok")
         self.status("ready")
         self.bus.refresh.emit()
         self.bus.sound.emit("success")
         self.bus.toast.emit(self.t("opt_done"), "ok")
 
     def set_win_tweak(self, key: str, on: bool):
-        """Windows: áp / hoàn tác ngay tuỳ chọn khi người dùng gạt công tắc (ghi registry rất nhanh)."""
+        """Windows: apply / undo an option immediately when the user flips the switch (registry writes are fast)."""
         if not core.IS_WINDOWS:
             return
         try:
             exe = self.current_java()
             core.apply_windows_tweak(self.cfg, key, on, exe)
         except Exception as e:
-            write_error_log(f"Tuỳ chọn Windows {key}", exc=e)
+            write_error_log(f"Windows option {key}", exc=e)
 
     def startup_windows(self):
-        """Windows: nếu lần trước launcher tắt đột ngột lúc đang chơi thì trả lại power plan."""
+        """Windows: if the launcher died while playing last time, restore the power plan."""
         if core.IS_WINDOWS:
             self.call_async(core.winsys.restore_power_plan, lambda _r: None, lambda _e: None)
 
     def install_gaming_tools(self):
         def job():
             self.status("busy")
-            self.log("Đang cài gamemode / MangoHud / jemalloc…", "info")
+            self.log("Installing gamemode / MangoHud / jemalloc…", "info")
             ok = core.install_gaming_tools(self.log)
-            self.log("Cài xong. Bật lại các tuỳ chọn rồi quét lại phần cứng." if ok else
-                     "Không cài được tự động — hãy cài thủ công gói «gamemode» và «mangohud».",
+            self.log("Installed. Re-enable the options and rescan the hardware." if ok else
+                     "Could not install automatically — install the «gamemode» and «mangohud» packages manually.",
                      "ok" if ok else "warn")
             self.status("ready")
             self.bus.sound.emit("success" if ok else "error")
@@ -897,7 +897,7 @@ class Controller:
             on_done(bool(res), None)
 
         def err(e):
-            self.log(f"Lỗi tải {name}: {e}", "error")
+            self.log(f"Download failed {name}: {e}", "error")
             self.bus.sound.emit("error")
             on_done(False, e)
 
@@ -909,7 +909,7 @@ class Controller:
             files = core.install_shortcuts()
             for f in files:
                 self.log(f"  {f}", "dim")
-            self.log("Đã cài shortcut.", "ok")
+            self.log("Shortcut installed.", "ok")
             self.cfg["shortcut_opt_out"] = False
             self.save()
             self.bus.cfg_changed.emit()
@@ -921,14 +921,14 @@ class Controller:
         def job():
             removed = core.remove_shortcuts()
             for f in removed:
-                self.log(f"  Đã gỡ: {f}", "dim")
-            self.cfg["shortcut_opt_out"] = True       # người dùng chủ động gỡ -> đừng tự tạo lại
+                self.log(f"  Removed: {f}", "dim")
+            self.cfg["shortcut_opt_out"] = True       # user removed them on purpose -> do not recreate
             self.save()
             self.bus.cfg_changed.emit()
         self.run_exclusive("shortcut", job)
 
     def startup_shortcuts(self):
-        """Tự tạo shortcut khi mở app (trừ khi người dùng đã chủ động gỡ); tự sửa nếu trỏ sai chỗ."""
+        """Create shortcuts on app start (unless the user removed them on purpose); fix them if they point elsewhere."""
         if self.cfg.get("shortcut_opt_out"):
             return
         if not core.shortcuts_present() or core.shortcuts_stale():
@@ -945,10 +945,10 @@ class Controller:
                 rpc.connect()
                 with self._rpc_lock:
                     self._rpc = rpc
-                self.log("Đã kết nối Discord Rich Presence.", "dim")
-                self.set_discord("Đang xem launcher", "Arch Client")
+                self.log("Discord Rich Presence connected.", "dim")
+                self.set_discord("Browsing the launcher", "Arch Client")
             except Exception:
-                self._rpc = None  # Discord không mở: bỏ qua im lặng
+                self._rpc = None  # Discord not running: skip silently
         self._pool.submit(job)
 
     def set_discord(self, details, state=None):
