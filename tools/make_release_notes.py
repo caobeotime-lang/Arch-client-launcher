@@ -38,7 +38,7 @@ def main() -> None:
         raise SystemExit(f"template {a.template} is missing the {MARK} marker")
     lines = [f"{sha256(Path(p))}  {Path(p).name}" for p in a.files]
     text = text.replace(MARK, "\n".join(lines))
-    Path(a.out).write_text(text, encoding="utf-8")
+    Path(a.out).write_text(text, encoding="utf-8", newline="\n")
     print(f"OK {a.out} (filled hashes for {len(a.files)} files)")
 
 
