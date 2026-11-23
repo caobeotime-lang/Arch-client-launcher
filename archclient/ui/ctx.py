@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Ngữ cảnh dùng chung cho mọi widget: cấu hình, controller, dịch chuỗi, âm thanh."""
+"""Shared context for every widget: config, controller, string translation, sound."""
 from __future__ import annotations
 
 from ..i18n import tr
@@ -12,7 +12,7 @@ class Ctx:
         self.bus = bus
         self.sound = sound
         self.lang = lang
-        self.window = None   # gán sau khi tạo cửa sổ chính
+        self.window = None   # set once the main window exists
 
     def tr(self, key, **kw):
         return tr(self.lang, key, **kw)
@@ -31,7 +31,7 @@ class Ctx:
         self.bus.toast.emit(text, kind)
 
 
-# Ctx hiện hành — widget cấp thấp (nút, switch…) lấy âm thanh từ đây.
+# The active Ctx — low-level widgets (buttons, switches...) get their sounds from here.
 _current: Ctx | None = None
 
 

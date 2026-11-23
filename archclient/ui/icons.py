@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Icon SVG (bộ Lucide, giấy phép ISC) vẽ bằng QtSvg, đổi màu lúc chạy — không phụ thuộc font emoji."""
+"""SVG icons (Lucide set, ISC license) drawn with QtSvg, recolored at runtime — no emoji font needed."""
 from __future__ import annotations
 
 import re
@@ -57,7 +57,7 @@ def icon_pixmap(name: str, color: str = "#e6e8ed", size: int = 20, dpr: float = 
 
 def paint_icon(p: QPainter, name: str, color: str, x: float, y: float, size: int,
                dpr: float | None = None, stroke: float = 1.8) -> None:
-    """Vẽ icon với góc trên trái (x, y)."""
+    """Draw the icon with its top-left corner at (x, y)."""
     pm = icon_pixmap(name, color, size, dpr or max(1.0, p.device().devicePixelRatioF()
                                                     if hasattr(p.device(), "devicePixelRatioF") else 1.0), stroke)
     p.drawPixmap(int(round(x)), int(round(y)), pm)

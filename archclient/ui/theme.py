@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Bảng màu + stylesheet toàn cục. Tông tối trung tính, một màu nhấn xanh dịu lấy từ logo."""
+"""Color palette + global stylesheet. Neutral dark tone, one soft green accent taken from the logo."""
 from __future__ import annotations
 
 from PyQt6.QtGui import QColor
 
-# nền
+# background
 BG_TOP = "#14171d"
 BG_BOTTOM = "#0d0f13"
-# chữ
+# text
 TEXT = "#e6e8ed"
 MUTED = "#8c94a3"
 FAINT = "#5c6472"
-# nhấn + trạng thái
+# accent + status
 ACCENT = "#4da3d4"
 ACCENT_HI = "#6ab6e2"
 OK = "#5fbd8b"
